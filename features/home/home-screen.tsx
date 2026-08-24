@@ -290,7 +290,6 @@ export default function HomeExperienceScreen() {
           <SuggestedProfiles
             theme={theme}
             users={home.suggestedUsers}
-            onFollow={(user) => { void home.social.followUser({ uid: user.uid, username: user.username }); }}
           />
         </Reveal>
       </AppChrome>

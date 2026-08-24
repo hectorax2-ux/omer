@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -96,39 +96,35 @@ export function FollowingActivity({ theme, artworks, posts }: { theme: AppTheme;
   );
 }
 
-export function SuggestedProfiles({ theme, users, onFollow }: { theme: AppTheme; users: SuggestedUser[]; onFollow: (user: SuggestedUser) => void }) {
+export function SuggestedProfiles({ theme, users }: { theme: AppTheme; users: SuggestedUser[] }) {
   const { language } = useLanguage();
   const router = useRouter();
   const styles = createStyles(theme);
-  const [limit, setLimit] = useState(3);
-  const visible = useMemo(() => users.slice(0, limit), [limit, users]);
   if (!users.length) return null;
   return (
     <View style={styles.section}>
-      <SectionHeading theme={theme} title={t(homeCopy.suggestedUsers, language)} />
-      <View style={styles.profileList}>
-        {visible.map((user) => (
-          <PressableScale key={user.uid || user.username} onPress={() => router.push({ pathname: "/profile/[name]", params: { name: profileRouteParam(user) } })} accessibilityLabel={`${user.name}, @${user.username}`}>
-            <GlassSurface theme={theme} radius={radii.md} level="low" contentStyle={styles.profileCard}>
-              <ProfileAvatar uri={user.image} size={46} />
-              <View style={styles.profileIdentity}>
-                <UserNameWithCountry name={user.name} username={user.username} uid={user.uid} countryCode={resolveCountryCodeFromUser(user)} nameStyle={styles.profileName} />
-                <Text style={styles.profileUsername} numberOfLines={1}>@{user.username}</Text>
-              </View>
-              <PressableScale onPress={() => onFollow(user)} style={styles.followButton} accessibilityLabel={`${t(homeCopy.follow, language)} ${user.name}`}>
-                <Ionicons name="person-add" size={15} color="#ffffff" />
-                <Text style={styles.followText} numberOfLines={1}>{t(homeCopy.follow, language)}</Text>
-              </PressableScale>
-            </GlassSurface>
+      <SectionHeading
+        theme={theme}
+        title={t(homeCopy.suggestedUsers, language)}
+        action={(
+          <PressableScale onPress={() => router.push("/discover")} style={styles.allProfilesButton} accessibilityLabel={language === "tr" ? "Tüm profilleri gör" : "See all profiles"}>
+            <Text style={styles.allProfilesText}>{language === "tr" ? "Tümünü Gör" : language === "ru" ? "Смотреть все" : language === "uz" ? "Barchasini ko'rish" : "See All"}</Text>
+            <Ionicons name="arrow-forward" size={14} color={v2Colors.cyan} />
+          </PressableScale>
+        )}
+      />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.profileRail} decelerationRate="fast">
+        {users.slice(0, 5).map((user) => (
+          <PressableScale key={user.uid || user.username} onPress={() => router.push({ pathname: "/profile/[name]", params: { name: profileRouteParam(user) } })} wrapStyle={styles.profilePortraitWrap} style={styles.profilePortrait} accessibilityLabel={`${user.name}, @${user.username}`}>
+            <LinearGradient colors={["rgba(49,95,234,0.18)", "rgba(17,24,49,0.98)"]} style={StyleSheet.absoluteFill} />
+            <ProfileAvatar uri={user.image} size={82} borderRadius={17} borderColor="rgba(56,215,232,0.24)" />
+            <View style={styles.profilePortraitIdentity}>
+              <UserNameWithCountry name={user.name} username={user.username} uid={user.uid} countryCode={resolveCountryCodeFromUser(user)} nameStyle={styles.profilePortraitName} />
+              <Text style={styles.profilePortraitUsername} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>@{user.username}</Text>
+            </View>
           </PressableScale>
         ))}
-      </View>
-      {limit < users.length && limit < 20 ? (
-        <PressableScale onPress={() => setLimit((value) => Math.min(20, value + 5))} style={styles.moreButton} accessibilityLabel={t(homeCopy.showMore, language)}>
-          <Text style={styles.moreText}>{t(homeCopy.showMore, language)}</Text>
-          <Ionicons name="chevron-down" size={17} color={v2Colors.primary} />
-        </PressableScale>
-      ) : null}
+      </ScrollView>
     </View>
   );
 }
@@ -156,14 +152,13 @@ function createStyles(theme: AppTheme) {
     postBody: { flex: 1, minWidth: 0 },
     postAuthor: { ...safeTextLayout, color: colors.ivory, fontSize: 13, lineHeight: 17, fontWeight: "900" },
     postText: { ...safeTextLayout, color: colors.muted, fontSize: 11.5, lineHeight: 16, fontWeight: "600", marginTop: 2 },
-    profileList: { gap: 9 },
-    profileCard: { minHeight: 72, padding: 11, flexDirection: "row", alignItems: "center", gap: 10 },
-    profileIdentity: { flex: 1, minWidth: 0 },
-    profileName: { ...safeTextLayout, color: colors.ivory, fontSize: 13.5, lineHeight: 18, fontWeight: "900" },
-    profileUsername: { ...safeTextLayout, color: colors.muted, fontSize: 11, lineHeight: 15, fontWeight: "700", marginTop: 1 },
-    followButton: { minHeight: homeLayout.minimumTouchTarget, minWidth: 88, maxWidth: 116, borderRadius: radii.pill, paddingHorizontal: 11, backgroundColor: v2Colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
-    followText: { ...safeTextLayout, color: "#ffffff", fontSize: 11.5, fontWeight: "800" },
-    moreButton: { minHeight: 50, marginTop: 9, borderRadius: radii.md, backgroundColor: v2Colors.surface1, borderWidth: 1, borderColor: v2Colors.border, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
-    moreText: { ...safeTextLayout, color: colors.ivory, fontSize: 12.5, fontWeight: "900" }
+    allProfilesButton: { minHeight: 38, borderRadius: radii.pill, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8 },
+    allProfilesText: { ...safeTextLayout, color: v2Colors.cyan, fontSize: 10.5, lineHeight: 14, fontWeight: "900" },
+    profileRail: { gap: 10, paddingRight: 18 },
+    profilePortraitWrap: { width: 132 },
+    profilePortrait: { width: 132, minHeight: 166, borderRadius: radii.lg, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", alignItems: "center", padding: 12, gap: 8, backgroundColor: colors.panel },
+    profilePortraitIdentity: { width: "100%", minWidth: 0, alignItems: "center" },
+    profilePortraitName: { ...safeTextLayout, color: colors.ivory, fontSize: 12.5, lineHeight: 16, fontWeight: "900", textAlign: "center" },
+    profilePortraitUsername: { ...safeTextLayout, color: colors.muted, fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 2, maxWidth: "100%" }
   });
 }

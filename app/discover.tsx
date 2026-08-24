@@ -1,60 +1,43 @@
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
 import { ProfileAvatar } from "@/components/profile-avatar";
-import { UserNameWithCountry } from "@/components/user-name-with-country";
-import { BadgeId, badgeItems, getBadgeItem, getRoleIcon, getRoleItem, roleItems, UserRoleId } from "@/constants/profile-taxonomy";
+import { getRoleIcon, getRoleItem, roleItems, type UserRoleId } from "@/constants/profile-taxonomy";
 import { getThemeColors } from "@/constants/theme";
 import { radii, v2Colors } from "@/constants/design";
-import { uiCopy } from "@/data/content";
+import { safeTextLayout } from "@/constants/text-layout";
+import { countryCommunities, uiCopy } from "@/data/content";
 import { useAccount } from "@/hooks/use-account";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useSocial } from "@/hooks/use-social";
-import { SuggestedUser } from "@/providers/social-provider";
+import type { SuggestedUser } from "@/providers/social-provider";
+import { rankProfileDiscoveryUsers } from "@/features/profile/profile-discovery-ranking";
 import { resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
 import { profileRouteParam } from "@/utils/profile-route";
 
-type BadgeFilter = "all" | "achievements" | "recommended" | UserRoleId | BadgeId;
+type ProfileFilter = "all" | "recommended" | "premium" | UserRoleId;
+type Language = "tr" | "en" | "ru" | "uz";
 
 const labels = {
-  filter: { tr: "Rozet / rol seç", en: "Choose badge / role", ru: "Выберите значок / роль", uz: "Nishon / rol tanlang" },
-  more: { tr: "Daha fazla gör", en: "Show more", ru: "Показать еще", uz: "Ko'proq ko'rish" },
-  empty: { tr: "Bu seçim için profil bulunamadı.", en: "No profiles found for this filter.", ru: "Для этого фильтра профили не найдены.", uz: "Bu tanlov uchun profil topilmadi." }
-};
-
-const staticFilterOptions: { key: BadgeFilter; icon: keyof typeof Ionicons.glyphMap; label: Record<"tr" | "en" | "ru" | "uz", string> }[] = [
-  { key: "all", icon: "sparkles", label: { tr: "Tüm profiller", en: "All profiles", ru: "Все профили", uz: "Barcha profillar" } },
-  { key: "achievements", icon: "trophy", label: { tr: "Başarımlar", en: "Achievements", ru: "Достижения", uz: "Yutuqlar" } },
-  { key: "recommended", icon: "people-circle", label: { tr: "Önerilen", en: "Suggested", ru: "Рекомендуемые", uz: "Tavsiya etilgan" } }
-];
-
-// Roles/badges intentionally hidden from the discover filter to keep the list short and relevant.
-const HIDDEN_FILTER_KEYS = new Set<string>([
-  "museum",
-  "verified_gallery",
-  "weekly_winner",
-  "quiz_master",
-  "editor_pick",
-  "top_writer",
-  "duel_champion",
-  "lucky_one"
-]);
-
-const nearbyCountries: Record<string, string[]> = {
-  turkiye: ["uzbekistan", "russia", "germany"],
-  uzbekistan: ["turkiye", "kazakhstan", "russia"],
-  russia: ["uzbekistan", "kazakhstan", "turkiye"],
-  usa: ["canada", "uk"],
-  uk: ["usa", "canada", "germany"],
-  canada: ["usa", "uk"],
-  germany: ["turkiye", "uk", "russia"],
-  kazakhstan: ["uzbekistan", "russia"]
-};
+  filter: { tr: "Rozet / rol seç", en: "Choose role", ru: "Выберите роль", uz: "Rolni tanlang" },
+  featured: { tr: "Galeride Öne Çıkanlar", en: "Featured in the Gallery", ru: "Избранное в галерее", uz: "Galereyada tanlanganlar" },
+  discover: { tr: "Yeni İnsanlar Keşfet", en: "Discover New People", ru: "Откройте новых людей", uz: "Yangi insonlarni kashf et" },
+  emptyTitle: { tr: "Galeride yeni yüzler aranıyor.", en: "The gallery is seeking new faces.", ru: "Галерея ищет новые лица.", uz: "Galereya yangi chehralarni kutmoqda." },
+  emptyBody: { tr: "Filtreyi değiştirerek tekrar bakabilirsin.", en: "Try another filter or search.", ru: "Измените фильтр или поиск.", uz: "Filtr yoki qidiruvni o'zgartirib ko'ring." },
+  errorTitle: { tr: "Profiller şu anda getirilemedi.", en: "Profiles could not be loaded.", ru: "Не удалось загрузить профили.", uz: "Profillarni yuklab bo'lmadi." },
+  retry: { tr: "Tekrar dene", en: "Retry", ru: "Повторить", uz: "Qayta urinish" },
+  more: { tr: "Galeriyi genişlet", en: "Expand the gallery", ru: "Расширить галерею", uz: "Galereyani kengaytir" },
+  all: { tr: "Tüm Profiller", en: "All Profiles", ru: "Все профили", uz: "Barcha profillar" },
+  recommended: { tr: "Önerilen", en: "Suggested", ru: "Рекомендуемые", uz: "Tavsiya etilgan" },
+  premium: { tr: "Premium", en: "Premium", ru: "Премиум", uz: "Premium" },
+  refreshing: { tr: "Galeri yenileniyor", en: "Refreshing gallery", ru: "Галерея обновляется", uz: "Galereya yangilanmoqda" }
+} as const;
 
 export default function DiscoverScreen() {
   const { isAuthenticated } = useAccount();
@@ -67,227 +50,290 @@ function AuthenticatedDiscoverScreen() {
   const { language } = useLanguage();
   const { theme } = useAppTheme();
   const colors = getThemeColors(theme);
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  const { visibleSuggestedUsers, hasMoreUsers, loadMoreUsers } = useSocial();
+  const { width } = useWindowDimensions();
+  const compact = width < 360;
+  const horizontalGap = compact ? 9 : 11;
+  const contentWidth = width - (compact ? 32 : width > 720 ? 48 : 36);
+  const cardWidth = Math.floor((contentWidth - horizontalGap) / 2);
+  const styles = useMemo(() => createStyles(colors, compact), [colors, compact]);
+  const social = useSocial();
+  const loadMoreUsers = social.loadMoreUsers;
   const { account } = useAccount();
   const router = useRouter();
-  const [filter, setFilter] = useState<BadgeFilter>("all");
+  const reducedMotion = useReducedMotion();
+  const [filter, setFilter] = useState<ProfileFilter>("all");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(8);
-  const [query, setQuery] = useState("");
-  const users = visibleSuggestedUsers;
-  const filterOptions = useMemo(() => [
-    staticFilterOptions[0],
-    staticFilterOptions[2],
-    ...roleItems
-      .filter((item) => !HIDDEN_FILTER_KEYS.has(item.id))
-      .map((item) => ({ key: item.id as BadgeFilter, icon: item.icon, label: item.label })),
-    ...badgeItems
-      .filter((item) => !HIDDEN_FILTER_KEYS.has(item.id))
-      .map((item) => ({ key: item.id as BadgeFilter, icon: item.icon, label: item.label }))
-  ], []);
-  const selectedFilter = filterOptions.find((item) => item.key === filter) ?? filterOptions[0];
-  const userCountryId = resolveCountryId(account.country ?? "");
-  const filtered = users
-    .filter((user) => matchesFilter(user, filter))
-    .filter((user) => {
-      const normalizedQuery = query.trim().toLocaleLowerCase("tr");
-      if (!normalizedQuery) return true;
-      return `${user.name} ${user.username}`.toLocaleLowerCase("tr").includes(normalizedQuery);
-    })
-    .sort((a, b) => filter === "recommended"
-      ? getRecommendationScore(b, userCountryId, language) - getRecommendationScore(a, userCountryId, language) || (a.lastActiveMinutesAgo ?? 9999) - (b.lastActiveMinutesAgo ?? 9999)
-      : (a.lastActiveMinutesAgo ?? 9999) - (b.lastActiveMinutesAgo ?? 9999)
-    );
-  const visible = filtered.slice(0, visibleCount);
+  const [visibleCount, setVisibleCount] = useState(12);
+  const [queryText, setQueryText] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
 
-  function setNextFilter(nextFilter: BadgeFilter) {
-    setFilter(nextFilter);
-    setVisibleCount(8);
-    setPickerOpen(false);
-  }
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(queryText.trim().toLocaleLowerCase("tr")), 300);
+    return () => clearTimeout(timer);
+  }, [queryText]);
+
+  useEffect(() => setVisibleCount(12), [debouncedQuery, filter]);
+
+  const userCountryId = resolveCountryId(account.country);
+  const ranked = useMemo(() => rankProfileDiscoveryUsers(social.visibleSuggestedUsers, {
+    followingUids: social.followingUids,
+    countryId: userCountryId,
+    interests: account.interests
+  }), [account.interests, social.followingUids, social.visibleSuggestedUsers, userCountryId]);
+  const featured = ranked.slice(0, 3);
+  const filtered = useMemo(() => ranked
+    .filter((user) => matchesFilter(user, filter))
+    .filter((user) => !debouncedQuery || `${user.name} ${user.username} ${user.country ?? ""}`.toLocaleLowerCase("tr").includes(debouncedQuery)), [debouncedQuery, filter, ranked]);
+  const visible = filtered.slice(0, visibleCount);
+  const supportedRoles = useMemo(() => roleItems.filter((role) => ranked.some((user) => user.role === role.id)), [ranked]);
+  const options = useMemo(() => [
+    { key: "all" as const, icon: "sparkles" as const, label: labels.all },
+    { key: "recommended" as const, icon: "compass" as const, label: labels.recommended },
+    ...supportedRoles.map((role) => ({ key: role.id as ProfileFilter, icon: role.icon, label: role.label })),
+    ...(ranked.some((user) => user.isPremium) ? [{ key: "premium" as const, icon: "diamond" as const, label: labels.premium }] : [])
+  ], [ranked, supportedRoles]);
+  const selected = options.find((item) => item.key === filter) ?? options[0];
+  const showInitialLoading = social.profileDiscoveryStatus === "loading" && !ranked.length;
+  const showError = social.profileDiscoveryStatus === "error" && !ranked.length;
+  const showEmpty = social.profileDiscoveryStatus === "success" && !filtered.length && !social.hasMoreUsers;
+
+  useEffect(() => {
+    if (social.profileDiscoveryStatus !== "success" || filtered.length || !social.hasMoreUsers) return;
+    void loadMoreUsers();
+  }, [debouncedQuery, filter, filtered.length, loadMoreUsers, social.hasMoreUsers, social.profileDiscoveryStatus]);
 
   async function showMore() {
-    if (visibleCount + 8 > filtered.length && hasMoreUsers) await loadMoreUsers();
+    if (visibleCount + 8 > filtered.length && social.hasMoreUsers) await loadMoreUsers();
     setVisibleCount((value) => value + 8);
+  }
+
+  function openProfile(user: SuggestedUser) {
+    router.push({ pathname: "/profile/[name]", params: { name: profileRouteParam(user) } });
   }
 
   return (
     <AppChrome title={uiCopy.discover[language]} showBackButton backToHome>
       <View style={styles.searchBox}>
-        <Ionicons name="search" size={18} color={colors.gold} />
+        <Ionicons name="search" size={18} color={v2Colors.cyan} />
         <TextInput
-          value={query}
-          onChangeText={setQuery}
+          value={queryText}
+          onChangeText={setQueryText}
           placeholder={language === "tr" ? "Kullanıcı adı, isim veya soyisim ara" : language === "ru" ? "Поиск по имени или логину" : language === "uz" ? "Ism yoki username qidirish" : "Search name or username"}
           placeholderTextColor={colors.muted}
           style={styles.searchInput}
         />
       </View>
 
-      <View style={styles.hero}>
-        <View style={styles.heroAtmosphere} pointerEvents="none" />
-        <View style={styles.heroCopy}>
-          <Text style={styles.heroKicker}>ART ATLAS DISCOVERY</Text>
-          <Text style={styles.heroTitle}>{uiCopy.discover[language]}</Text>
-          <Text style={styles.heroText}>{uiCopy.discoverSubtitle[language]}</Text>
+      <DiscoveryHero users={featured} reducedMotion={reducedMotion} styles={styles} language={language} />
+
+      {featured.length ? (
+        <View style={styles.section}>
+          <SectionTitle title={labels.featured[language]} styles={styles} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRail} decelerationRate="fast">
+            {featured.map((user, index) => (
+              <PortraitCard key={user.uid || user.username} user={user} width={Math.min(230, contentWidth * 0.64)} index={index} featured language={language} reducedMotion={reducedMotion} onPress={() => openProfile(user)} styles={styles} />
+            ))}
+          </ScrollView>
         </View>
-        <View style={styles.orbitCluster} pointerEvents="none">
-          <View style={styles.orbitLine} />
-          <LinearGradient colors={[v2Colors.blue, v2Colors.violet]} style={[styles.discoveryOrb, styles.discoveryOrbMain]}><Ionicons name="compass" size={24} color={v2Colors.text} /></LinearGradient>
-          <LinearGradient colors={[v2Colors.violet, v2Colors.magenta]} style={[styles.discoveryOrb, styles.discoveryOrbSmall]}><Ionicons name="people" size={15} color={v2Colors.text} /></LinearGradient>
-          <LinearGradient colors={["#0E7490", v2Colors.cyan]} style={[styles.discoveryOrb, styles.discoveryOrbTiny]}><Ionicons name="sparkles" size={12} color={v2Colors.text} /></LinearGradient>
-        </View>
-      </View>
+      ) : null}
 
       <Pressable onPress={() => setPickerOpen((value) => !value)} style={styles.selector}>
         <View style={styles.selectorLeft}>
-          <Ionicons name={selectedFilter.icon} size={19} color={colors.gold} />
-          <View>
+          <View style={styles.selectorIcon}><Ionicons name={selected.icon} size={17} color={v2Colors.cyan} /></View>
+          <View style={styles.selectorCopy}>
             <Text style={styles.selectorLabel}>{labels.filter[language]}</Text>
-            <Text style={styles.selectorValue}>{selectedFilter.label[language]}</Text>
+            <Text style={styles.selectorValue}>{selected.label[language]}</Text>
           </View>
         </View>
-        <Ionicons name={pickerOpen ? "chevron-up" : "chevron-down"} size={19} color={colors.muted} />
+        <Ionicons name={pickerOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.muted} />
       </Pressable>
 
       {pickerOpen ? (
         <View style={styles.optionPanel}>
-          {filterOptions.map((option) => (
-            <Pressable key={option.key} onPress={() => setNextFilter(option.key)} style={[styles.optionChip, filter === option.key && styles.optionActive]}>
-              <Ionicons name={option.icon} size={14} color={filter === option.key ? colors.ink : colors.gold} />
+          {options.map((option) => (
+            <Pressable key={option.key} onPress={() => { setFilter(option.key); setPickerOpen(false); }} style={[styles.optionChip, filter === option.key && styles.optionActive]}>
+              <Ionicons name={option.icon} size={13} color={filter === option.key ? "#071126" : colors.gold} />
               <Text style={[styles.optionText, filter === option.key && styles.optionTextActive]} numberOfLines={1}>{option.label[language]}</Text>
             </Pressable>
           ))}
         </View>
       ) : null}
 
-      <View style={styles.list}>
-        {visible.map((user) => (
-          <Pressable key={user.uid || user.username} onPress={() => router.push({ pathname: "/profile/[name]", params: { name: profileRouteParam(user) } })} style={[styles.userCard, user.isPremium && styles.premiumCard]}>
-            <ProfileAvatar uri={user.image} size={46} />
-            <View style={styles.userInfo}>
-              <View style={styles.nameRow}>
-                <UserNameWithCountry name={user.name} username={user.username} uid={user.uid} countryCode={resolveCountryCodeFromUser(user)} nameStyle={styles.name} />
-                {user.isPremium ? <Ionicons name="diamond" size={14} color={colors.gold} /> : null}
-              </View>
-              <Text style={styles.username}>@{user.username}</Text>
-              <View style={styles.badgeRow}>
-                {getUserBadges(user, language).slice(0, 2).map((badge) => (
-                  <View key={badge.label} style={styles.badge}>
-                    <Ionicons name={badge.icon} size={12} color={colors.gold} />
-                    <Text style={styles.badgeText} numberOfLines={1}>{badge.label}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-            <View style={styles.affinity}><Text style={styles.affinityValue}>{Math.min(99, getRecommendationScore(user, userCountryId, language))}%</Text><Text style={styles.affinityLabel}>{language === "tr" ? "uyum" : language === "ru" ? "связь" : language === "uz" ? "mos" : "match"}</Text></View>
-          </Pressable>
-        ))}
+      <View style={styles.galleryHeading}>
+        <SectionTitle title={labels.discover[language]} styles={styles} />
+        {social.profileDiscoveryRefreshing ? <Text style={styles.refreshingText}>{labels.refreshing[language]}</Text> : null}
       </View>
 
-      {!visible.length ? <Text style={styles.empty}>{labels.empty[language]}</Text> : null}
-      {visibleCount < filtered.length || hasMoreUsers ? (
+      {showInitialLoading ? <PortraitSkeletonGrid cardWidth={cardWidth} gap={horizontalGap} styles={styles} /> : null}
+      {showError ? <DiscoveryState icon="cloud-offline-outline" title={labels.errorTitle[language]} action={labels.retry[language]} onAction={social.retryProfileDiscovery} styles={styles} /> : null}
+      {showEmpty ? <DiscoveryState icon="planet-outline" title={labels.emptyTitle[language]} body={labels.emptyBody[language]} styles={styles} /> : null}
+
+      {visible.length ? (
+        <View style={[styles.galleryGrid, { gap: horizontalGap }]}>
+          {visible.map((user, index) => (
+            <PortraitCard key={user.uid || user.username} user={user} width={cardWidth} index={index} language={language} reducedMotion={reducedMotion} onPress={() => openProfile(user)} styles={styles} />
+          ))}
+        </View>
+      ) : null}
+
+      {visibleCount < filtered.length || social.hasMoreUsers ? (
         <Pressable onPress={() => void showMore()} style={styles.moreButton}>
           <Text style={styles.moreText}>{labels.more[language]}</Text>
+          <Ionicons name="chevron-down" size={17} color={v2Colors.cyan} />
         </Pressable>
       ) : null}
     </AppChrome>
   );
 }
 
-function matchesFilter(user: SuggestedUser, filter: BadgeFilter) {
-  if (filter === "all") return true;
-  if (filter === "recommended") return true;
-  if (isRoleFilter(filter)) return user.role === filter;
-  if (filter === "premium") return !!user.isPremium;
-  if (filter === "achievements") return !!user.badges?.some((badge) => badge === "weekly_winner" || badge === "quiz_master");
-  return isBadgeFilter(filter) ? user.badges?.includes(filter) ?? false : false;
+function DiscoveryHero({ users, reducedMotion, styles, language }: { users: SuggestedUser[]; reducedMotion: boolean; styles: ReturnType<typeof createStyles>; language: Language }) {
+  const rotation = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (reducedMotion) return;
+    const animation = Animated.loop(Animated.timing(rotation, { toValue: 1, duration: 18000, easing: Easing.linear, useNativeDriver: true }));
+    animation.start();
+    return () => animation.stop();
+  }, [reducedMotion, rotation]);
+  const spin = rotation.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const reverse = rotation.interpolate({ inputRange: [0, 1], outputRange: ["360deg", "0deg"] });
+  return (
+    <LinearGradient colors={["#111831", "#172344", "#26385E"]} style={styles.hero}>
+      <View style={styles.heroLightOne} pointerEvents="none" />
+      <View style={styles.heroLightTwo} pointerEvents="none" />
+      <View style={styles.heroCopy}>
+        <Text style={styles.heroKicker}>ART ATLAS DISCOVERY</Text>
+        <Text style={styles.heroTitle}>{uiCopy.discover[language]}</Text>
+        <Text style={styles.heroText}>{uiCopy.discoverSubtitle[language]}</Text>
+      </View>
+      <View style={styles.orbitStage} pointerEvents="none">
+        <Animated.View style={[styles.orbitOuter, { transform: [{ perspective: 700 }, { rotate: spin }] }]} />
+        <Animated.View style={[styles.orbitMiddle, { transform: [{ perspective: 700 }, { rotate: reverse }] }]} />
+        <Animated.View style={[styles.orbitInner, { transform: [{ perspective: 700 }, { rotate: spin }] }]} />
+        <LinearGradient colors={[v2Colors.violet, v2Colors.blue, v2Colors.cyan]} style={styles.compassOrb}><Ionicons name="compass" size={25} color="#F6F0DF" /></LinearGradient>
+        {users.slice(0, 3).map((user, index) => <ProfileAvatar key={user.uid || user.username} uri={user.image} size={index === 0 ? 28 : 23} style={index === 0 ? styles.orbitPortrait0 : index === 1 ? styles.orbitPortrait1 : styles.orbitPortrait2} />)}
+      </View>
+    </LinearGradient>
+  );
 }
 
-function isRoleFilter(filter: BadgeFilter): filter is UserRoleId {
-  return roleItems.some((item) => item.id === filter);
-}
-
-function isBadgeFilter(filter: BadgeFilter): filter is BadgeId {
-  return badgeItems.some((item) => item.id === filter);
-}
-
-function getRecommendationScore(user: SuggestedUser, countryId: string | undefined, language: "tr" | "en" | "ru" | "uz") {
-  let score = 0;
-  if (user.language === language) score += 40;
-  if (countryId && user.countryId === countryId) score += 35;
-  if (countryId && nearbyCountries[countryId]?.includes(user.countryId ?? "")) score += 18;
-  if (user.isPremium) score += 6;
-  score += Math.max(0, 20 - Math.floor((user.lastActiveMinutesAgo ?? 999) / 3));
-  return score;
-}
-
-export function getUserBadges(user: Pick<SuggestedUser, "role" | "badges" | "isPremium">, language: "tr" | "en" | "ru" | "uz") {
+function PortraitCard({ user, width, index, featured = false, language, reducedMotion, onPress, styles }: { user: SuggestedUser; width: number; index: number; featured?: boolean; language: Language; reducedMotion: boolean; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
+  const entrance = useRef(new Animated.Value(reducedMotion ? 1 : 0)).current;
+  const pressScale = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (reducedMotion) return;
+    Animated.timing(entrance, { toValue: 1, duration: 300, delay: Math.min(index, 4) * 35, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [entrance, index, reducedMotion]);
+  const country = localizedCountry(user, language);
   const role = getRoleItem(user.role);
-  const badges = [
-    user.isPremium ? { label: badgeItems[0].label[language], icon: badgeItems[0].icon } : null,
-    {
-      label: role.label[language],
-      icon: getRoleIcon(user.role)
-    },
-    ...(user.badges ?? []).map((badge) => {
-      const option = getBadgeItem(badge);
-      return option ? { label: option.label[language], icon: option.icon } : null;
-    })
-  ].filter(Boolean);
-  return badges.filter(Boolean) as { label: string; icon: keyof typeof Ionicons.glyphMap }[];
+  const imageSize = Math.round(width * (featured ? 1.18 : 1.25));
+  return (
+    <Animated.View style={{ width, opacity: entrance, transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }, { scale: Animated.multiply(entrance.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1] }), pressScale) }] }}>
+      <Pressable onPress={onPress} onPressIn={() => Animated.spring(pressScale, { toValue: 0.97, speed: 32, bounciness: 0, useNativeDriver: true }).start()} onPressOut={() => Animated.spring(pressScale, { toValue: 1, speed: 24, bounciness: 7, useNativeDriver: true }).start()} style={[styles.portraitCard, featured && styles.featuredCard]} accessibilityRole="button" accessibilityLabel={`${user.name}, @${user.username}`}>
+        <ProfileAvatar uri={user.image} size={imageSize} borderRadius={20} style={styles.portraitImage} />
+        <LinearGradient colors={["rgba(8,12,30,0.02)", "rgba(8,12,30,0.42)", "rgba(8,12,30,0.98)"]} locations={[0.28, 0.58, 1]} style={StyleSheet.absoluteFill} />
+        <View style={styles.cardHighlight} />
+        <View style={styles.portraitInfo}>
+          <View style={styles.rolePill}>
+            <Ionicons name={user.isPremium ? "diamond" : getRoleIcon(user.role)} size={10} color={user.isPremium ? "#F4BF4F" : "#38D7E8"} />
+            <Text style={styles.roleText} numberOfLines={1}>{user.isPremium ? labels.premium[language] : role.label[language]}</Text>
+          </View>
+          <Text style={styles.portraitName} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.76}>{user.name}</Text>
+          <Text style={styles.portraitUsername} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>@{user.username}</Text>
+          {country ? <Text style={styles.countryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{country}</Text> : null}
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
 }
 
-function createStyles(colors: ReturnType<typeof getThemeColors>) {
+function SectionTitle({ title, styles }: { title: string; styles: ReturnType<typeof createStyles> }) {
+  return <View style={styles.sectionTitleRow}><View style={styles.sectionAccent} /><Text style={styles.sectionTitle}>{title}</Text></View>;
+}
+
+function PortraitSkeletonGrid({ cardWidth, gap, styles }: { cardWidth: number; gap: number; styles: ReturnType<typeof createStyles> }) {
+  return <View style={[styles.galleryGrid, { gap }]}>{[0, 1, 2, 3].map((item) => <View key={item} style={[styles.skeletonCard, { width: cardWidth }]}><View style={styles.skeletonGlow} /></View>)}</View>;
+}
+
+function DiscoveryState({ icon, title, body, action, onAction, styles }: { icon: keyof typeof Ionicons.glyphMap; title: string; body?: string; action?: string; onAction?: () => void; styles: ReturnType<typeof createStyles> }) {
+  return <View style={styles.stateCard}><View style={styles.stateOrbit}><Ionicons name={icon} size={25} color={v2Colors.cyan} /></View><Text style={styles.stateTitle}>{title}</Text>{body ? <Text style={styles.stateBody}>{body}</Text> : null}{action && onAction ? <Pressable onPress={onAction} style={styles.retryButton}><Text style={styles.retryText}>{action}</Text></Pressable> : null}</View>;
+}
+
+function matchesFilter(user: SuggestedUser, filter: ProfileFilter) {
+  if (filter === "all" || filter === "recommended") return true;
+  if (filter === "premium") return Boolean(user.isPremium);
+  return user.role === filter;
+}
+
+function localizedCountry(user: SuggestedUser, language: Language) {
+  const code = resolveCountryCodeFromUser(user);
+  const match = countryCommunities.find((country) => country.id === user.countryId || country.code === code);
+  if (!match && !user.country) return "";
+  return `${code ? flagFromCode(code) : ""}${code ? " " : ""}${match?.name[language] ?? user.country}`;
+}
+
+function flagFromCode(code: string) {
+  const normalized = code.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(normalized)) return "";
+  return String.fromCodePoint(...[...normalized].map((character) => 127397 + character.charCodeAt(0)));
+}
+
+function createStyles(colors: ReturnType<typeof getThemeColors>, compact: boolean) {
   return StyleSheet.create({
-    hero: {
-      flexDirection: "row",
-      alignItems: "center",
-      minHeight: 126,
-      position: "relative",
-      overflow: "visible",
-      marginTop: 7,
-      marginBottom: 6
-    },
-    heroAtmosphere: { position: "absolute", right: -8, width: 154, height: 116, borderRadius: 70, backgroundColor: "rgba(37,99,235,0.12)", shadowColor: v2Colors.blue, shadowOpacity: 0.72, shadowRadius: 24, shadowOffset: { width: 0, height: 0 } },
-    heroCopy: { width: "61%", minWidth: 0, zIndex: 2 },
-    heroKicker: { color: v2Colors.cyan, fontSize: 9, lineHeight: 12, fontWeight: "800", letterSpacing: 1.35 },
-    heroTitle: { color: v2Colors.text, fontSize: 23, lineHeight: 27, fontWeight: "800", letterSpacing: -0.45, marginTop: 4 },
-    heroText: { color: v2Colors.textMuted, fontSize: 11, lineHeight: 15, fontWeight: "600", marginTop: 4 },
-    orbitCluster: { position: "absolute", right: 2, width: 112, height: 112 },
-    orbitLine: { position: "absolute", left: 6, top: 10, width: 100, height: 82, borderRadius: 52, borderWidth: 1, borderColor: "rgba(34,211,238,0.34)", transform: [{ rotate: "-17deg" }] },
-    discoveryOrb: { position: "absolute", borderRadius: 999, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", shadowColor: v2Colors.violet, shadowOpacity: 0.75, shadowRadius: 15, shadowOffset: { width: 0, height: 0 } },
-    discoveryOrbMain: { width: 58, height: 58, left: 28, top: 27 },
-    discoveryOrbSmall: { width: 36, height: 36, right: 1, top: 3 },
-    discoveryOrbTiny: { width: 30, height: 30, left: 2, bottom: 3 },
-    selector: { minHeight: 52, borderRadius: radii.xl, borderWidth: 1, borderColor: "rgba(139,92,246,0.24)", backgroundColor: v2Colors.surface1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, marginTop: 8 },
-    searchBox: { minHeight: 46, borderRadius: radii.pill, borderWidth: 1, borderColor: v2Colors.border, backgroundColor: v2Colors.surface1, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 13, marginTop: 0 },
-    searchInput: { flex: 1, color: colors.ivory, fontSize: 14, fontWeight: "800" },
-    selectorLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
-    selectorLabel: { color: colors.muted, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
-    selectorValue: { color: colors.ivory, fontSize: 14, fontWeight: "900", marginTop: 1 },
-    optionPanel: { borderRadius: radii.lg, borderWidth: 1, borderColor: v2Colors.border, backgroundColor: v2Colors.glass, padding: 10, marginTop: 8, flexDirection: "row", flexWrap: "wrap", gap: 7 },
-    optionChip: { minHeight: 32, borderRadius: 999, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panelSoft, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 4 },
-    optionActive: { backgroundColor: colors.gold, borderColor: colors.gold },
-    optionText: { color: colors.ivory, fontWeight: "800", fontSize: 12 },
-    optionTextActive: { color: colors.ink },
-    list: { gap: 3, marginTop: 10 },
-    userCard: { minHeight: 70, borderRadius: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: v2Colors.border, backgroundColor: "rgba(255,255,255,0.018)", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 7, paddingVertical: 7 },
-    premiumCard: { borderWidth: 1, borderColor: "rgba(246,196,83,0.26)", backgroundColor: "rgba(246,196,83,0.035)" },
-    avatar: { width: 54, height: 54, borderRadius: 27 },
-    userInfo: { flex: 1, minWidth: 0 },
-    nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-    name: { color: colors.ivory, fontSize: 14, fontWeight: "900", flexShrink: 1 },
-    username: { color: colors.gold, fontSize: 11, fontWeight: "800", marginTop: 0 },
-    badgeRow: { flexDirection: "row", flexWrap: "nowrap", gap: 4, marginTop: 4, overflow: "hidden" },
-    badge: { minHeight: 20, maxWidth: "48%", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panelSoft, flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6 },
-    badgeText: { color: colors.ivory, fontSize: 9, fontWeight: "900", flexShrink: 1 },
-    affinity: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: v2Colors.cyan, backgroundColor: "rgba(14,116,144,0.12)", alignItems: "center", justifyContent: "center" },
-    affinityValue: { color: v2Colors.text, fontSize: 10, lineHeight: 12, fontWeight: "900" },
-    affinityLabel: { color: v2Colors.textFaint, fontSize: 7.5, lineHeight: 9, fontWeight: "700" },
-    empty: { color: colors.muted, textAlign: "center", fontWeight: "800", padding: 18 },
-    moreButton: { minHeight: 46, borderRadius: radii.pill, backgroundColor: "rgba(99,102,241,0.28)", borderWidth: 1, borderColor: "rgba(139,92,246,0.35)", alignItems: "center", justifyContent: "center", marginTop: 12 },
-    moreText: { color: v2Colors.text, fontWeight: "900" }
+    searchBox: { minHeight: 46, borderRadius: radii.pill, borderWidth: 1, borderColor: "rgba(56,215,232,0.2)", backgroundColor: "rgba(17,24,49,0.82)", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 14 },
+    searchInput: { ...safeTextLayout, flex: 1, minWidth: 0, color: colors.ivory, fontSize: compact ? 12.5 : 14, fontWeight: "800" },
+    hero: { minHeight: compact ? 158 : 176, borderRadius: 22, overflow: "hidden", marginTop: 12, padding: compact ? 15 : 18, justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" },
+    heroLightOne: { position: "absolute", right: -28, top: -20, width: 150, height: 150, borderRadius: 75, backgroundColor: "rgba(118,87,255,0.17)" },
+    heroLightTwo: { position: "absolute", right: 50, bottom: -72, width: 130, height: 130, borderRadius: 65, backgroundColor: "rgba(56,215,232,0.08)" },
+    heroCopy: { width: compact ? "57%" : "59%", zIndex: 2 },
+    heroKicker: { ...safeTextLayout, color: "#38D7E8", fontSize: 8.5, lineHeight: 12, fontWeight: "900", letterSpacing: 1.25 },
+    heroTitle: { ...safeTextLayout, color: "#F6F0DF", fontSize: compact ? 21 : 25, lineHeight: compact ? 26 : 30, fontWeight: "900", marginTop: 5 },
+    heroText: { ...safeTextLayout, color: "#AEB8D0", fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 4 },
+    orbitStage: { position: "absolute", right: compact ? -4 : 4, width: compact ? 132 : 148, height: compact ? 132 : 148, alignItems: "center", justifyContent: "center" },
+    orbitOuter: { position: "absolute", width: "100%", height: "58%", borderRadius: 100, borderWidth: 1, borderColor: "rgba(56,215,232,0.34)" },
+    orbitMiddle: { position: "absolute", width: "78%", height: "78%", borderRadius: 100, borderWidth: 1, borderColor: "rgba(118,87,255,0.36)" },
+    orbitInner: { position: "absolute", width: "61%", height: "38%", borderRadius: 100, borderWidth: 1, borderColor: "rgba(244,191,79,0.4)" },
+    compassOrb: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.28)", elevation: 4 },
+    orbitPortrait0: { position: "absolute", right: 2, top: 28, borderColor: "rgba(244,191,79,0.8)" },
+    orbitPortrait1: { position: "absolute", left: 8, bottom: 22, borderColor: "rgba(56,215,232,0.8)" },
+    orbitPortrait2: { position: "absolute", right: 27, bottom: 2, borderColor: "rgba(118,87,255,0.8)" },
+    section: { marginTop: 21 },
+    sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 },
+    sectionAccent: { width: 3, height: 22, borderRadius: 2, backgroundColor: "#38D7E8" },
+    sectionTitle: { ...safeTextLayout, color: "#F6F0DF", fontSize: compact ? 16 : 18, lineHeight: 23, fontWeight: "900", flexShrink: 1 },
+    featuredRail: { paddingTop: 11, paddingRight: 16, gap: 11 },
+    selector: { minHeight: 58, borderRadius: 17, borderWidth: 1, borderColor: "rgba(118,87,255,0.26)", backgroundColor: "rgba(17,24,49,0.86)", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, marginTop: 22 },
+    selectorLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 },
+    selectorIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(56,215,232,0.09)", borderWidth: 1, borderColor: "rgba(56,215,232,0.2)", alignItems: "center", justifyContent: "center" },
+    selectorCopy: { flex: 1, minWidth: 0 },
+    selectorLabel: { ...safeTextLayout, color: "#AEB8D0", fontSize: 9.5, lineHeight: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.6 },
+    selectorValue: { ...safeTextLayout, color: "#F6F0DF", fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 1 },
+    optionPanel: { borderRadius: 17, borderWidth: 1, borderColor: "rgba(118,87,255,0.24)", backgroundColor: "rgba(18,28,56,0.96)", padding: 10, marginTop: 7, flexDirection: "row", flexWrap: "wrap", gap: 7 },
+    optionChip: { minHeight: 34, maxWidth: "100%", borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(255,255,255,0.05)", flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10 },
+    optionActive: { backgroundColor: "#38D7E8", borderColor: "#38D7E8" },
+    optionText: { ...safeTextLayout, color: "#F6F0DF", fontWeight: "800", fontSize: 11.5, flexShrink: 1 },
+    optionTextActive: { color: "#071126" },
+    galleryHeading: { minHeight: 52, marginTop: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+    refreshingText: { ...safeTextLayout, color: "#38D7E8", fontSize: 9.5, lineHeight: 13, fontWeight: "800", textAlign: "right", maxWidth: 100 },
+    galleryGrid: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start" },
+    portraitCard: { width: "100%", aspectRatio: 0.8, borderRadius: 20, overflow: "hidden", backgroundColor: "#16213D", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", elevation: 4 },
+    featuredCard: { aspectRatio: 0.84, elevation: 6 },
+    portraitImage: { position: "absolute", left: 0, top: 0, borderWidth: 0, backgroundColor: "#21335A" },
+    cardHighlight: { position: "absolute", left: 15, right: 15, top: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" },
+    portraitInfo: { position: "absolute", left: 11, right: 11, bottom: 11 },
+    rolePill: { alignSelf: "flex-start", minHeight: 20, maxWidth: "92%", borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", backgroundColor: "rgba(8,12,30,0.58)", flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, marginBottom: 5 },
+    roleText: { ...safeTextLayout, color: "#F6F0DF", fontSize: 8.5, lineHeight: 12, fontWeight: "900", flexShrink: 1 },
+    portraitName: { ...safeTextLayout, color: "#FFF9EC", fontSize: compact ? 13.5 : 15, lineHeight: compact ? 17 : 19, fontWeight: "900", minHeight: compact ? 34 : 38 },
+    portraitUsername: { ...safeTextLayout, color: "#BFC8DB", fontSize: compact ? 9.5 : 10.5, lineHeight: 14, fontWeight: "800" },
+    countryText: { ...safeTextLayout, color: "#F4BF4F", fontSize: compact ? 9 : 10, lineHeight: 14, fontWeight: "800", marginTop: 2 },
+    stateCard: { minHeight: 210, borderRadius: 20, borderWidth: 1, borderColor: "rgba(56,215,232,0.16)", backgroundColor: "rgba(17,24,49,0.72)", alignItems: "center", justifyContent: "center", padding: 22 },
+    stateOrbit: { width: 68, height: 42, borderRadius: 35, borderWidth: 1, borderColor: "rgba(56,215,232,0.36)", alignItems: "center", justifyContent: "center", transform: [{ rotate: "-8deg" }] },
+    stateTitle: { ...safeTextLayout, color: "#F6F0DF", fontSize: 16, lineHeight: 22, fontWeight: "900", textAlign: "center", marginTop: 13 },
+    stateBody: { ...safeTextLayout, color: "#AEB8D0", fontSize: 12, lineHeight: 18, fontWeight: "700", textAlign: "center", marginTop: 4 },
+    retryButton: { minHeight: 40, borderRadius: 999, borderWidth: 1, borderColor: "#38D7E8", alignItems: "center", justifyContent: "center", paddingHorizontal: 17, marginTop: 13 },
+    retryText: { color: "#38D7E8", fontSize: 12, fontWeight: "900" },
+    skeletonCard: { aspectRatio: 0.8, borderRadius: 20, overflow: "hidden", backgroundColor: "rgba(33,51,90,0.72)" },
+    skeletonGlow: { position: "absolute", left: 12, right: 12, bottom: 13, height: 45, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.06)" },
+    moreButton: { minHeight: 48, borderRadius: 999, backgroundColor: "rgba(56,215,232,0.09)", borderWidth: 1, borderColor: "rgba(56,215,232,0.24)", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 14 },
+    moreText: { color: "#F6F0DF", fontSize: 12, fontWeight: "900" }
   });
 }

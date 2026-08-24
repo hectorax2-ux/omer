@@ -70,11 +70,12 @@ export default function AccountScreen() {
   const { items, loading: communityLoading, addProfileArtwork, deleteSubmittedArtwork, getArtworkLimitStatus, submitArtwork, commentsByArtwork } = useCommunityArt();
   const { personalMuseums } = useArtSystems();
   const { posts, addPost, deletePost, favoriteIds, getPostLimitStatus, likedIds, toggleFavorite, toggleHidden, toggleLike, updatePost } = useDiscoveryPosts();
-  const { followingReady, getFollowersFor, getFollowingFor, isFollowGraphReady, unfollowUser, patchSuggestedUser, watchFollowGraph } = useSocial();
+  const { getFollowersFor, getFollowingFor, unfollowUser, patchSuggestedUser, watchFollowGraph } = useSocial();
   const { upsertIdentity } = useCountryLookup();
   const {
     account,
     profileHydrated,
+    profileHydrationError,
     isAuthenticated,
     canUseMemberFeatures,
     pendingVerificationEmail,
@@ -87,7 +88,8 @@ export default function AccountScreen() {
     saveAccountProfile,
     deleteAccount,
     updateAccount,
-    logout
+    logout,
+    retryProfileHydration
   } = useAccount();
   const [username, setUsername] = useState(account.username);
   const [displayName, setDisplayName] = useState(account.displayName);
@@ -405,7 +407,23 @@ export default function AccountScreen() {
     );
   }
 
-  if (!profileHydrated || communityLoading || !followingReady || !account.uid || !isFollowGraphReady(account.uid)) {
+  if (profileHydrationError && !profileHydrated) {
+    return (
+      <AppChrome title={copy.account[language]} eyebrow={copy.profileInfo[language]} showTopAd={false} showFloatingShortcuts={false}>
+        <View style={styles.profileHydrationError}>
+          <Ionicons name="cloud-offline-outline" size={28} color={colors.gold} />
+          <Text style={styles.profileHydrationErrorText}>
+            {language === "tr" ? "Profil bilgileri şu anda yüklenemedi." : language === "ru" ? "Не удалось загрузить данные профиля." : language === "uz" ? "Profil ma'lumotlarini hozir yuklab bo'lmadi." : "Profile data could not be loaded."}
+          </Text>
+          <Pressable onPress={retryProfileHydration} style={styles.profileHydrationRetry}>
+            <Text style={styles.profileHydrationRetryText}>{language === "tr" ? "Tekrar dene" : language === "ru" ? "Повторить" : language === "uz" ? "Qayta urinish" : "Retry"}</Text>
+          </Pressable>
+        </View>
+      </AppChrome>
+    );
+  }
+
+  if (!profileHydrated || !account.uid) {
     return (
       <AppChrome title={copy.account[language]} eyebrow={copy.profileInfo[language]} showTopAd={false} showFloatingShortcuts={false}>
         <AccountProfileSkeleton styles={styles} />
@@ -691,7 +709,7 @@ export default function AccountScreen() {
           </Pressable> : null}
         </View>
 
-        {profileContentTab === "images" ? ownArtworks.length ? (
+        {profileContentTab === "images" ? communityLoading ? null : ownArtworks.length ? (
           <View style={[styles.profileGrid, { gap: profileGridGap }]}>
             {ownArtworks.map((item) => (
               <Pressable key={item.id} onPress={() => openProfileArtworkPreview(item.id)} style={[styles.profileArtworkCard, { width: profileArtworkSize }]} accessibilityRole="button" accessibilityLabel={item.title}>
@@ -3141,6 +3159,38 @@ return StyleSheet.create({
   logoutText: {
     color: colors.ivory,
     fontSize: 16,
+    fontWeight: "900"
+  },
+  profileHydrationError: {
+    minHeight: 180,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.panel,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    padding: 20
+  },
+  profileHydrationErrorText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "800",
+    textAlign: "center"
+  },
+  profileHydrationRetry: {
+    minHeight: 38,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.gold,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16
+  },
+  profileHydrationRetryText: {
+    color: colors.gold,
+    fontSize: 12,
     fontWeight: "900"
   },
   profileHydrationStack: {

@@ -104,7 +104,9 @@ type AccountContextValue = {
   pendingVerificationEmail?: string;
   authLoading: boolean;
   profileHydrated: boolean;
+  profileHydrationError: boolean;
   needsProfileCompletion: boolean;
+  retryProfileHydration: () => void;
   login: (email: string, password: string) => Promise<AuthActionResult>;
   register: (nextAccount: Pick<Account, "username" | "password" | "email">) => Promise<AuthActionResult>;
   verifyEmailCode: (code?: string) => Promise<AuthActionResult>;
@@ -161,7 +163,9 @@ export const AccountContext = createContext<AccountContextValue>({
   pendingVerificationEmail: undefined,
   authLoading: false,
   profileHydrated: false,
+  profileHydrationError: false,
   needsProfileCompletion: false,
+  retryProfileHydration: () => undefined,
   login: async () => ({ ok: false, message: "" }),
   register: async () => ({ ok: false, message: "" }),
   verifyEmailCode: async () => ({ ok: false, message: "" }),
@@ -184,6 +188,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | undefined>();
   const [authLoading, setAuthLoading] = useState(true);
   const [profileHydrated, setProfileHydrated] = useState(false);
+  const [profileHydrationError, setProfileHydrationError] = useState(false);
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const startupPhase = useStartupPhase();
@@ -207,6 +212,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
       avatar: input.photoURL || undefined
     });
     setProfileHydrated(false);
+    setProfileHydrationError(false);
     setNeedsProfileCompletion(true);
     setIsAuthenticated(true);
     setIsEmailVerified(true);
@@ -219,6 +225,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
       profileServerReadyUidRef.current = input.user.uid;
       setAccount(hydratedAccount);
       setProfileHydrated(true);
+      setProfileHydrationError(false);
       setNeedsProfileCompletion(incomplete);
       void saveResourceCache(`account:${input.user.uid}`, {
         account: hydratedAccount,
@@ -244,6 +251,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
           profileServerReadyUidRef.current = "";
           setAccount(initialAccount);
           setProfileHydrated(false);
+          setProfileHydrationError(false);
           setIsAuthenticated(false);
           setIsEmailVerified(false);
           setPendingVerificationEmail(undefined);
@@ -260,6 +268,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
         // render a usable account shell first, then reconcile Firestore in background.
         setAccount(accountFromFirebaseUser(authenticatedUser.uid, authenticatedUser.email ?? "", authenticatedUser.displayName ?? ""));
         setProfileHydrated(false);
+        setProfileHydrationError(false);
         setNeedsProfileCompletion(false);
         setPendingVerificationEmail(verified ? undefined : authenticatedUser.email ?? undefined);
         setIsAuthenticated(true);
@@ -269,6 +278,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
           if (!cached || firebaseAuth.currentUser?.uid !== authenticatedUser.uid || profileServerReadyUidRef.current === authenticatedUser.uid) return;
           setAccount(cached.account);
           setProfileHydrated(true);
+          setProfileHydrationError(false);
           setNeedsProfileCompletion(cached.needsProfileCompletion);
           markPerformanceEvent("PROFILE_DATA_READY", { source: "disk" });
         });
@@ -285,7 +295,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const user = firebaseAuth.currentUser;
-    if (startupPhase === "critical" || !isAuthenticated || !user) return undefined;
+    if (!isAuthenticated || !user) return undefined;
 
     const sociallyVerified = hasSocialAuthProvider(user);
 
@@ -302,6 +312,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
         const hydratedAccount = accountFromProfile(profile);
         const incomplete = profileNeedsCompletion(profile);
         setProfileHydrated(true);
+        setProfileHydrationError(false);
         setNeedsProfileCompletion(incomplete);
         setAccount((current) => {
           const usernameChanged = current.username !== hydratedAccount.username;
@@ -337,10 +348,13 @@ export function AccountProvider({ children }: PropsWithChildren) {
       }
       setProfileHydrated(false);
       setNeedsProfileCompletion(true);
+      setProfileHydrationError(true);
     }, (error) => {
       console.warn("[Auth] Firebase session restored, but profile hydration failed.", error);
+      if (firebaseAuth.currentUser?.uid !== user.uid) return;
+      setProfileHydrationError(true);
     });
-  }, [isAuthenticated, startupPhase]);
+  }, [isAuthenticated, refreshCounter]);
 
   useEffect(() => {
     const user = firebaseAuth.currentUser;
@@ -412,7 +426,12 @@ export function AccountProvider({ children }: PropsWithChildren) {
       pendingVerificationEmail,
       authLoading,
       profileHydrated,
+      profileHydrationError,
       needsProfileCompletion,
+      retryProfileHydration: () => {
+        setProfileHydrationError(false);
+        setRefreshCounter((value) => value + 1);
+      },
       login: async (email: string, password: string) => {
         try {
           const credential = await loginWithEmail(email, password);
@@ -779,7 +798,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
         });
       }
     }),
-    [account, authLoading, completeSocialSignIn, isAuthenticated, isEmailVerified, needsProfileCompletion, pendingVerificationEmail, profileHydrated]
+    [account, authLoading, completeSocialSignIn, isAuthenticated, isEmailVerified, needsProfileCompletion, pendingVerificationEmail, profileHydrated, profileHydrationError]
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;

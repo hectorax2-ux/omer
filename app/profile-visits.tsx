@@ -17,6 +17,7 @@ import {
   fetchProfileVisits,
   loadProfileVisitCache,
   markProfileVisitsViewed,
+  profileVisitErrorDetails,
   saveProfileVisitVisibility,
   type ProfileVisitIdentity,
   type ProfileVisitSnapshot,
@@ -64,15 +65,22 @@ export default function ProfileVisitsScreen() {
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
     let active = true;
-    snapshotRef.current = null;
-    setSnapshot(null);
-    setLoadState("loading");
+    const warmSnapshot = snapshotRef.current?.ownerUid === account.uid ? snapshotRef.current : null;
+    if (!warmSnapshot) {
+      snapshotRef.current = null;
+      setSnapshot(null);
+      setLoadState("loading");
+    }
 
-    void loadProfileVisitCache(account.uid).then((cached) => {
+    const cachePromise = loadProfileVisitCache(account.uid).catch((error) => {
+      console.warn("[Profile visits] Local cache read failed.", profileVisitErrorDetails(error));
+      return null;
+    });
+    void cachePromise.then((cached) => {
       if (!active || requestRef.current !== requestId || !cached) return;
       snapshotRef.current = cached;
       setSnapshot(cached);
-      if (cached.summaries.length) setLoadState("data");
+      setLoadState(cached.summaries.length ? "data" : "empty");
     });
     void fetchProfileVisits(account.uid, account.isPremium).then((fresh) => {
       if (!active || requestRef.current !== requestId) return;
@@ -80,8 +88,11 @@ export default function ProfileVisitsScreen() {
       setSnapshot(fresh);
       setLoadState(fresh.summaries.length ? "data" : "empty");
       void markProfileVisitsViewed(account.uid, fresh);
-    }).catch(() => {
-      if (!active || requestRef.current !== requestId || snapshotRef.current) return;
+    }).catch(async (error) => {
+      if (!active || requestRef.current !== requestId) return;
+      console.warn("[Profile visits] Summary query failed.", profileVisitErrorDetails(error));
+      const cached = snapshotRef.current?.ownerUid === account.uid ? snapshotRef.current : await cachePromise;
+      if (!active || requestRef.current !== requestId || cached) return;
       setLoadState("error");
     });
 
@@ -170,7 +181,7 @@ export default function ProfileVisitsScreen() {
         ].map((stat) => (
           <View key={stat.label.en} style={styles.stat}>
             <Text style={styles.statLabel}>{t(stat.label, language).toLocaleUpperCase(language)}</Text>
-            <Text style={styles.statValue}>{loadState === "loading" ? "—" : stat.value}</Text>
+            <Text style={styles.statValue}>{loadState === "data" || loadState === "empty" ? stat.value : "—"}</Text>
           </View>
         ))}
       </View>

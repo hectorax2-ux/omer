@@ -1,42 +1,24 @@
 import { createContext, PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { collection, getDocs, limit, query, startAfter, where, type QueryDocumentSnapshot } from "firebase/firestore";
-import { BadgeId, UserRoleId } from "@/constants/profile-taxonomy";
+import { collection, getDocs, limit, query, where, type QueryDocumentSnapshot } from "firebase/firestore";
 import { useAccount } from "@/hooks/use-account";
 import { useLanguage } from "@/hooks/use-language";
 import { useMessaging } from "@/hooks/use-messaging";
 import { useRegisterRefresh } from "@/providers/refresh-provider";
 import { firestoreDb } from "@/src/services/firebase";
 import { createUserFollow, deleteUserFollow, subscribeFollowers, subscribeFollowing, type UserFollowRecord } from "@/src/services/firebase/follow-service";
-import { findCountryByInput, resolveCountryCode } from "@/utils/country-utils";
+import { resolveCountryCode } from "@/utils/country-utils";
 import { buildSuspendedIdentityIndex, isSuspendedIdentity, normalizeSuspensionKey, type UserIdentityRef } from "@/utils/user-suspension";
 import { dedupeSuggestedUsers, isSameAccountUser } from "@/utils/user-identity";
-import { isPremiumDataActive } from "@/utils/premium-status";
 import { commonCopy } from "@/app/i18n/common";
 import { t } from "@/utils/localized-text";
 import { usePathname } from "expo-router";
 import { useStartupPhase } from "@/hooks/use-startup-phase";
 import { isResourceArray, loadResourceCache, peekResourceCache, saveResourceCache } from "@/src/services/cache/resource-cache";
+import { fetchProfileDiscoveryPage, mapProfileDiscoveryUser, profileDiscoveryErrorDetails, type SuggestedUser } from "@/src/services/firebase/profile-discovery-service";
+
+export type { SuggestedUser } from "@/src/services/firebase/profile-discovery-service";
 
 const USER_DIRECTORY_CACHE_KEY = "users:directory:first-page";
-
-export type SuggestedUser = {
-  uid?: string;
-  name: string;
-  username: string;
-  image: string;
-  role: UserRoleId;
-  badges?: BadgeId[];
-  isPremium?: boolean;
-  isDisabled?: boolean;
-  isAdmin?: boolean;
-  country?: string;
-  countryId?: string;
-  countryCode?: string;
-  language?: "tr" | "en" | "ru" | "uz";
-  lastActiveMinutesAgo?: number;
-  followersCount?: number;
-  followingCount?: number;
-};
 
 export type SocialNotification = {
   id: string;
@@ -60,7 +42,11 @@ type SocialContextValue = {
   followingReady: boolean;
   readNotificationIds: string[];
   hasMoreUsers: boolean;
+  profileDiscoveryStatus: "loading" | "success" | "error";
+  profileDiscoveryRefreshing: boolean;
+  profileDiscoveryError: string;
   loadMoreUsers: () => Promise<boolean>;
+  retryProfileDiscovery: () => void;
   followUser: (target: { uid?: string; username?: string }) => Promise<FollowActionResult>;
   unfollowUser: (target: { uid?: string; username?: string }) => Promise<FollowActionResult>;
   isFollowing: (target: { uid?: string; username?: string }) => boolean;
@@ -82,7 +68,11 @@ export const SocialContext = createContext<SocialContextValue>({
   followingReady: false,
   readNotificationIds: [],
   hasMoreUsers: false,
+  profileDiscoveryStatus: "loading",
+  profileDiscoveryRefreshing: false,
+  profileDiscoveryError: "",
   loadMoreUsers: async () => false,
+  retryProfileDiscovery: () => undefined,
   followUser: async () => ({ ok: false }),
   unfollowUser: async () => ({ ok: false }),
   isFollowing: () => false,
@@ -103,7 +93,7 @@ export function SocialProvider({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const startupPhase = useStartupPhase();
   const directoryRelevant = pathname === "/" || pathname.startsWith("/discover") || pathname.startsWith("/profile") || pathname.startsWith("/feed");
-  const directoryNetworkReady = startupPhase === "idle" || (startupPhase === "background" && directoryRelevant);
+  const directoryNetworkReady = directoryRelevant || startupPhase === "idle";
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>(() => peekResourceCache<SuggestedUser[]>(USER_DIRECTORY_CACHE_KEY) ?? []);
   const [followingRecords, setFollowingRecords] = useState<UserFollowRecord[]>([]);
   const [followingReady, setFollowingReady] = useState(false);
@@ -114,6 +104,11 @@ export function SocialProvider({ children }: PropsWithChildren) {
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [hasMoreUsers, setHasMoreUsers] = useState(false);
+  const [profileDiscoveryStatus, setProfileDiscoveryStatus] = useState<"loading" | "success" | "error">(() => suggestedUsers.length ? "success" : "loading");
+  const [profileDiscoveryRefreshing, setProfileDiscoveryRefreshing] = useState(false);
+  const [profileDiscoveryError, setProfileDiscoveryError] = useState("");
+  const suggestedUsersRef = useRef(suggestedUsers);
+  suggestedUsersRef.current = suggestedUsers;
   const usersPageCursorRef = useRef<QueryDocumentSnapshot | null>(null);
   const usersPageLoadingRef = useRef(false);
   const pendingFollowActions = useRef(new Map<string, UserFollowRecord | null>());
@@ -124,7 +119,9 @@ export function SocialProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     let active = true;
     void loadResourceCache(USER_DIRECTORY_CACHE_KEY, isSuggestedUserArray).then((cached) => {
-      if (active && cached) setSuggestedUsers(cached);
+      if (!active || !cached) return;
+      setSuggestedUsers(cached);
+      setProfileDiscoveryStatus("success");
     });
     return () => {
       active = false;
@@ -134,14 +131,27 @@ export function SocialProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!directoryNetworkReady) return;
     let active = true;
-    loadFirestoreUsersPage().then((page) => {
+    if (suggestedUsersRef.current.length) setProfileDiscoveryRefreshing(true);
+    else setProfileDiscoveryStatus("loading");
+    setProfileDiscoveryError("");
+    fetchProfileDiscoveryPage().then((page) => {
         if (!active) return;
         setSuggestedUsers(page.users);
         void saveResourceCache(USER_DIRECTORY_CACHE_KEY, page.users);
         usersPageCursorRef.current = page.cursor;
         setHasMoreUsers(page.hasMore);
+        setProfileDiscoveryStatus("success");
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        if (!active) return;
+        const details = profileDiscoveryErrorDetails(error);
+        console.warn("[Profile discovery] User directory query failed.", details);
+        setProfileDiscoveryError(details.code);
+        setProfileDiscoveryStatus(suggestedUsersRef.current.length ? "success" : "error");
+      })
+      .finally(() => {
+        if (active) setProfileDiscoveryRefreshing(false);
+      });
     return () => {
       active = false;
     };
@@ -154,7 +164,7 @@ export function SocialProvider({ children }: PropsWithChildren) {
       .then((snapshot) => {
         if (!active) return;
         const suspended = snapshot.docs
-          .map((item) => mapFirestoreSuggestedUser(item.id, item.data()))
+          .map((item) => mapProfileDiscoveryUser(item.id, item.data()))
           .filter((item): item is SuggestedUser => Boolean(item));
         setSuggestedUsers((current) => current.map((user) => suspended.find((item) => item.uid === user.uid) ?? user));
       })
@@ -168,16 +178,21 @@ export function SocialProvider({ children }: PropsWithChildren) {
     if (usersPageLoadingRef.current || !hasMoreUsers) return false;
     usersPageLoadingRef.current = true;
     try {
-      const page = await loadFirestoreUsersPage(usersPageCursorRef.current);
+      const page = await fetchProfileDiscoveryPage(usersPageCursorRef.current);
       usersPageCursorRef.current = page.cursor;
       setHasMoreUsers(page.hasMore);
       setSuggestedUsers((current) => {
         const merged = new Map(current.map((user) => [user.uid || user.username, user]));
         page.users.forEach((user) => merged.set(user.uid || user.username, user));
-        return [...merged.values()];
+        const users = [...merged.values()];
+        void saveResourceCache(USER_DIRECTORY_CACHE_KEY, users);
+        return users;
       });
       return page.users.length > 0;
-    } catch {
+    } catch (error) {
+      const details = profileDiscoveryErrorDetails(error);
+      console.warn("[Profile discovery] Next page query failed.", details);
+      setProfileDiscoveryError(details.code);
       return false;
     } finally {
       usersPageLoadingRef.current = false;
@@ -365,13 +380,13 @@ export function SocialProvider({ children }: PropsWithChildren) {
   );
 
   const unblockedSuggestedUsers = useMemo(
-    () => suggestedUsers.filter((user) => !isUserBlocked({ uid: user.uid, username: user.username, name: user.name })),
-    [isUserBlocked, suggestedUsers]
+    () => blocksReady ? suggestedUsers.filter((user) => !isUserBlocked({ uid: user.uid, username: user.username, name: user.name })) : [],
+    [blocksReady, isUserBlocked, suggestedUsers]
   );
 
   const visibleSuggestedUsers = useMemo(
     () => dedupeSuggestedUsers(
-      unblockedSuggestedUsers.filter((user) => !user.isDisabled && !isSameAccountUser(user, account))
+      unblockedSuggestedUsers.filter((user) => !user.isDisabled && !user.isAdmin && user.isProfileVisible !== false && !isSameAccountUser(user, account))
     ) as SuggestedUser[],
     [account, unblockedSuggestedUsers]
   );
@@ -421,7 +436,11 @@ export function SocialProvider({ children }: PropsWithChildren) {
       followingReady,
       readNotificationIds,
       hasMoreUsers,
+      profileDiscoveryStatus: !blocksReady && account.uid ? "loading" : profileDiscoveryStatus,
+      profileDiscoveryRefreshing,
+      profileDiscoveryError,
       loadMoreUsers,
+      retryProfileDiscovery: () => setRefreshCounter((value) => value + 1),
       watchFollowGraph,
       followUser: async (target: { uid?: string; username?: string }) => {
         if (!canUseMemberFeatures || !account.uid) {
@@ -531,6 +550,7 @@ export function SocialProvider({ children }: PropsWithChildren) {
     [
       account.uid,
       account.username,
+      blocksReady,
       canUseMemberFeatures,
       followersByUid,
       following,
@@ -539,6 +559,9 @@ export function SocialProvider({ children }: PropsWithChildren) {
       followingRecords,
       followingUids,
       hasMoreUsers,
+      profileDiscoveryError,
+      profileDiscoveryRefreshing,
+      profileDiscoveryStatus,
       isUserSuspended,
       isUserBlocked,
       isFollowGraphReady,
@@ -555,68 +578,6 @@ export function SocialProvider({ children }: PropsWithChildren) {
   );
 
   return <SocialContext.Provider value={value}>{children}</SocialContext.Provider>;
-}
-
-function mapFirestoreSuggestedUser(uid: string, data: Record<string, unknown>): SuggestedUser | undefined {
-  const username = typeof data.username === "string" ? data.username : "";
-  if (!username) return undefined;
-  const legacyBadges = Array.isArray(data.badges) ? data.badges.filter((item): item is BadgeId => typeof item === "string") : [];
-  const systemBadges = Array.isArray(data.systemBadges) ? data.systemBadges.filter((item): item is BadgeId => typeof item === "string") : [];
-  const adminBadges = Array.isArray(data.adminBadges) ? data.adminBadges.filter((item): item is BadgeId => typeof item === "string" && item !== "art_lover" && item !== "artist") : [];
-  const badges = Array.from(new Set([...legacyBadges, ...systemBadges, ...adminBadges]));
-  const country = typeof data.country === "string" && data.country.trim() ? data.country.trim() : undefined;
-  const countryMatch = country ? findCountryByInput(country) : null;
-  const countryId = typeof data.countryId === "string" && data.countryId.trim()
-    ? data.countryId.trim()
-    : countryMatch?.id;
-  const countryCode = typeof data.countryCode === "string" && data.countryCode.trim()
-    ? data.countryCode.trim().toUpperCase()
-    : countryMatch?.code;
-  return {
-    uid,
-    name: typeof data.displayName === "string" && data.displayName ? data.displayName : username,
-    username,
-    image: typeof data.photoURL === "string" && data.photoURL ? data.photoURL : "",
-    role: mapFirestoreRole(data.appRole ?? data.role),
-    badges,
-    isPremium: isPremiumDataActive(data),
-    isDisabled: Boolean(data.isDisabled),
-    isAdmin: data.role === "admin",
-    country,
-    countryId,
-    countryCode,
-    language: mapFirestoreLanguage(data.language),
-    lastActiveMinutesAgo: 0,
-    followersCount: typeof data.followersCount === "number" ? data.followersCount : 0,
-    followingCount: typeof data.followingCount === "number" ? data.followingCount : 0
-  };
-}
-
-const USER_DIRECTORY_PAGE_SIZE = 80;
-
-async function loadFirestoreUsersPage(cursor?: QueryDocumentSnapshot | null) {
-  const users: SuggestedUser[] = [];
-  const snapshot = await getDocs(cursor
-    ? query(collection(firestoreDb, "users"), startAfter(cursor), limit(USER_DIRECTORY_PAGE_SIZE))
-    : query(collection(firestoreDb, "users"), limit(USER_DIRECTORY_PAGE_SIZE)));
-  snapshot.docs.forEach((item) => {
-    const mapped = mapFirestoreSuggestedUser(item.id, item.data());
-    if (mapped) users.push(mapped);
-  });
-  return {
-    users,
-    cursor: snapshot.docs[snapshot.docs.length - 1] ?? null,
-    hasMore: snapshot.docs.length === USER_DIRECTORY_PAGE_SIZE
-  };
-}
-
-function mapFirestoreRole(value: unknown): UserRoleId {
-  if (value === "artist" || value === "curator" || value === "art_patron" || value === "verified_gallery" || value === "museum" || value === "critic" || value === "collector" || value === "researcher" || value === "educator") return value;
-  return "art_lover";
-}
-
-function mapFirestoreLanguage(value: unknown): SuggestedUser["language"] {
-  return value === "tr" || value === "en" || value === "ru" || value === "uz" ? value : undefined;
 }
 
 function isSuggestedUserArray(value: unknown): value is SuggestedUser[] {

@@ -1,4 +1,71 @@
 workflows:
+  android-production:
+    name: Art Atlas Android Production
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+
+    environment:
+      android_signing:
+        - art_atlas_android
+      vars:
+        EXPO_PUBLIC_APP_CHANNEL: "production"
+        EXPO_PUBLIC_ADMOB_ANDROID_APP_ID: "ca-app-pub-2567631954700803~4945612019"
+        EXPO_PUBLIC_ADMOB_IOS_APP_ID: "ca-app-pub-2567631954700803~2234698515"
+        EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: "349078695494-t906pokggtone17o1lo7vn27agq0dts5.apps.googleusercontent.com"
+        EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: "349078695494-ldb7g31gdq7nlvm5kpbj7f0rsg1h4f3v.apps.googleusercontent.com"
+        EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: "349078695494-7huai98d92aspv3i3jokpsjaen4sl1oq.apps.googleusercontent.com"
+      node: 20.19.4
+      java: 17
+
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR/node_modules
+        - $HOME/.gradle/caches
+        - $HOME/.gradle/wrapper
+
+    scripts:
+      - name: Install JavaScript dependencies
+        script: npm ci
+
+      - name: Generate the Expo Android project
+        script: npx expo prebuild --platform android --no-install
+
+      - name: Configure Android release signing
+        script: |
+          node <<'NODE'
+          const fs = require("fs")
+          const path = `${process.env.CM_BUILD_DIR}/android/app/build.gradle`
+          const source = fs.readFileSync(path, "utf8")
+          const withReleaseSigning = source.replace(
+            /(signingConfigs\s*\{\s*debug\s*\{[\s\S]*?\n\s*\})(\s*\n\s*\})/,
+            `$1
+                  release {
+                      storeFile file(System.getenv("CM_KEYSTORE_PATH"))
+                      storePassword System.getenv("CM_KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("CM_KEY_ALIAS")
+                      keyPassword System.getenv("CM_KEY_PASSWORD")
+                  }$2`
+          )
+          const signedRelease = withReleaseSigning.replace(
+            /(release\s*\{[\s\S]*?)signingConfig signingConfigs\.debug/,
+            "$1signingConfig signingConfigs.release"
+          )
+          if (source === withReleaseSigning || withReleaseSigning === signedRelease) {
+            throw new Error("Expo Android signing configuration could not be applied")
+          }
+          fs.writeFileSync(path, signedRelease)
+          NODE
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"
+
+      - name: Build signed Android App Bundle
+        script: |
+          cd "$CM_BUILD_DIR/android"
+          ./gradlew bundleRelease
+
+    artifacts:
+      - android/app/build/outputs/**/*.aab
+      - android/app/build/outputs/**/mapping.txt
+
   ios-production:
     name: Art Atlas iOS Production
     instance_type: mac_mini_m2

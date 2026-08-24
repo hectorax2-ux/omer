@@ -98,7 +98,7 @@ export default function MemberProfileScreen() {
   const { account, isAuthenticated } = useAccount();
   const { items, loading: communityLoading, deleteSubmittedArtwork, commentsByArtwork } = useCommunityArt();
   const { posts, favoriteIds, likedIds, toggleFavorite, toggleLike } = useDiscoveryPosts();
-  const { suggestedUsers, visibleSuggestedUsers, followingReady, followUser, unfollowUser, isFollowing, getFollowersFor, getFollowingFor, isFollowGraphReady, patchSuggestedUser, watchFollowGraph } = useSocial();
+  const { suggestedUsers, visibleSuggestedUsers, followUser, unfollowUser, isFollowing, getFollowersFor, getFollowingFor, patchSuggestedUser, watchFollowGraph } = useSocial();
   const { blockUser, hasBlockedUser, startConversationWith, unblockUser } = useMessaging();
   const { personalMuseums } = useArtSystems();
   const { width } = useWindowDimensions();
@@ -121,6 +121,7 @@ export default function MemberProfileScreen() {
     };
   });
   const [suggestedForProfile, setSuggestedForProfile] = useState<SuggestedUser[]>([]);
+  const [profileRetryToken, setProfileRetryToken] = useState(0);
   const suggestionsLockedRef = useRef("");
   const profileRequestRef = useRef(0);
 
@@ -136,6 +137,8 @@ export default function MemberProfileScreen() {
     normalizeIdentityKey(profileUser.username) === normalizedParam
     || Boolean(profileUser.uid && profileParam && profileUser.uid === profileParam)
   ) ? profileUser.uid : undefined;
+  const profileKnownUidRef = useRef(profileKnownUid);
+  profileKnownUidRef.current = profileKnownUid;
   const activeHydration = profileHydration.routeKey === normalizedParam ? profileHydration : undefined;
   const fetchedProfileUser = activeHydration?.profile ?? null;
   const remoteProfileUser = fetchedProfileUser ? mapRemoteProfileUser(fetchedProfileUser) : undefined;
@@ -215,7 +218,8 @@ export default function MemberProfileScreen() {
     const routeKey = normalizeIdentityKey(profileParam);
     const requestId = profileRequestRef.current + 1;
     profileRequestRef.current = requestId;
-    const memoryProfile = peekProfileCache(profileParam, profileKnownUid);
+    const knownProfileUid = profileKnownUidRef.current;
+    const memoryProfile = peekProfileCache(profileParam, knownProfileUid);
     setProfileHydration({
       routeKey,
       status: memoryProfile ? "cached" : "loading",
@@ -223,7 +227,7 @@ export default function MemberProfileScreen() {
     });
     let unsubscribe: (() => void) | undefined;
     let subscribedUid = "";
-    const knownUid = memoryProfile?.uid ?? profileKnownUid;
+    const knownUid = memoryProfile?.uid ?? knownProfileUid;
     const cachePromise = loadProfileCache(profileParam, knownUid).catch(() => memoryProfile);
     const serverProfilePromise = knownUid
       ? getUserDocumentFromServer(knownUid)
@@ -262,10 +266,11 @@ export default function MemberProfileScreen() {
       patchSuggestedUser(serverProfile.uid, suggestedUserPatchFromProfile(serverProfile));
       void saveProfileCache(serverProfile).catch(() => undefined);
       startSubscription(serverProfile.uid);
-    }).catch(() => {
+    }).catch((error) => {
+      console.warn("[Profile] Core hydration failed.", firebaseErrorDetails(error));
       void cachePromise.then((cachedProfile) => {
         if (profileRequestRef.current !== requestId || cachedProfile) return;
-        setProfileHydration((current) => reconcileProfileHydration(current, profileRequestRef.current, { requestId, routeKey, status: "missing", profile: null }));
+        setProfileHydration((current) => reconcileProfileHydration(current, profileRequestRef.current, { requestId, routeKey, status: "error", profile: null }));
       });
     });
 
@@ -273,7 +278,7 @@ export default function MemberProfileScreen() {
       if (profileRequestRef.current === requestId) profileRequestRef.current += 1;
       unsubscribe?.();
     };
-  }, [isRouteCurrentAccount, patchSuggestedUser, profileKnownUid, profileParam]);
+  }, [isRouteCurrentAccount, patchSuggestedUser, profileParam, profileRetryToken]);
 
   useEffect(() => {
     const lockKey = profileParam ?? "";
@@ -301,7 +306,9 @@ export default function MemberProfileScreen() {
     let active = true;
     const task = InteractionManager.runAfterInteractions(() => {
       if (!active) return;
-      void recordProfileVisit(profileUid).catch(() => undefined);
+      void recordProfileVisit(profileUid).catch((error) => {
+        console.warn("[Profile visits] Visit signal write failed.", firebaseErrorDetails(error));
+      });
     });
     return () => {
       active = false;
@@ -313,11 +320,27 @@ export default function MemberProfileScreen() {
     return <AuthRequired title={labels.profile[language]} />;
   }
 
-  const profileCriticalReady = isCurrentAccount || Boolean(resolvedProfileUser && profileUid && followingReady && isFollowGraphReady(profileUid) && !communityLoading);
-  if (!profileCriticalReady && activeHydration?.status !== "missing") {
+  const profileCriticalReady = isCurrentAccount || Boolean(resolvedProfileUser && profileUid);
+  if (!profileCriticalReady && activeHydration?.status !== "missing" && activeHydration?.status !== "error") {
     return (
       <AppChrome title={labels.profile[language]} eyebrow="Art Atlas" showTopAd={false}>
         <ProfileSkeleton styles={styles} />
+      </AppChrome>
+    );
+  }
+
+  if (!isCurrentAccount && activeHydration?.status === "error") {
+    return (
+      <AppChrome title={labels.profile[language]} eyebrow="Art Atlas" showTopAd={false}>
+        <View style={styles.emptyCard}>
+          <Ionicons name="cloud-offline-outline" size={28} color={colors.gold} />
+          <Text style={styles.emptyText}>
+            {language === "tr" ? "Profil şu anda yüklenemedi." : language === "ru" ? "Не удалось загрузить профиль." : language === "uz" ? "Profilni hozir yuklab bo'lmadi." : "The profile could not be loaded."}
+          </Text>
+          <Pressable onPress={() => setProfileRetryToken((value) => value + 1)} style={styles.profileRetryButton}>
+            <Text style={styles.profileRetryText}>{language === "tr" ? "Tekrar dene" : language === "ru" ? "Повторить" : language === "uz" ? "Qayta urinish" : "Retry"}</Text>
+          </Pressable>
+        </View>
       </AppChrome>
     );
   }
@@ -668,7 +691,7 @@ export default function MemberProfileScreen() {
         ) : null}
       </View>
 
-      {contentTab === "images" ? artworks.length ? (
+      {contentTab === "images" ? communityLoading ? null : artworks.length ? (
         <View style={[styles.grid, { gap: tileGap }]}>
           {artworks.map((item) => (
             <Pressable key={item.id} onPress={() => { setPreviewArtworkNotice(""); setSelectedArtworkId(item.id); }} style={[styles.profileArtworkCard, { width: tileSize }]} accessibilityRole="button" accessibilityLabel={item.title}>
@@ -827,6 +850,13 @@ function InfoPill({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: 
       <Text style={styles.infoPillText} numberOfLines={1}>{text}</Text>
     </View>
   );
+}
+
+function firebaseErrorDetails(error: unknown) {
+  if (!error || typeof error !== "object") return { code: "unknown" };
+  const code = "code" in error && typeof error.code === "string" ? error.code : "unknown";
+  const message = "message" in error && typeof error.message === "string" ? error.message : undefined;
+  return { code, message };
 }
 
 type ProfileBadge = {
@@ -1531,6 +1561,20 @@ return StyleSheet.create({
     color: colors.muted,
     textAlign: "center",
     fontWeight: "800"
+  },
+  profileRetryButton: {
+    minHeight: 38,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.gold,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16
+  },
+  profileRetryText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: "900"
   },
   profileSuspendedNotice: {
     minHeight: 96,

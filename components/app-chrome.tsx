@@ -525,6 +525,7 @@ function AppMenu({ visible, onClose, theme, onNavigate }: { visible: boolean; on
   const primaryItems = [
     { title: language === "tr" ? "Müze Keşfi" : language === "ru" ? "Поиск музеев" : language === "uz" ? "Muzey kashfiyoti" : "Museum Explore", icon: "map-outline", path: "/museum-find" },
     { title: language === "tr" ? "Sanatçılar" : language === "ru" ? "Художники" : language === "uz" ? "San'atkorlar" : "Artists", icon: "people-outline", path: "/artists" },
+    { title: language === "tr" ? "Profil Keşfet" : language === "ru" ? "Поиск профилей" : language === "uz" ? "Profillarni kashf et" : "Discover Profiles", icon: "compass-outline", path: "/discover" },
     { title: copy.ranking[language], icon: "bar-chart-outline", path: "/leaderboards" },
     { title: language === "tr" ? "Roller / Rozetler" : language === "ru" ? "Роли / значки" : language === "uz" ? "Rollar / nishonlar" : "Roles / Badges", icon: "ribbon-outline", path: "/roles-badges" },
     { title: uiCopy.inviteFriend[language], icon: "share-social-outline", path: "/invite" },

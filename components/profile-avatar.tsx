@@ -63,6 +63,8 @@ export function ProfileAvatar({
       source={{ uri: uri!.trim() }}
       style={[frameStyle, style as StyleProp<ImageStyle>]}
       contentFit="cover"
+      cachePolicy="memory-disk"
+      transition={180}
       onError={() => setFailed(true)}
     />
   );

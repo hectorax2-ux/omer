@@ -1,6 +1,6 @@
 export type ProfileHydrationState<T> = {
   routeKey: string;
-  status: "loading" | "cached" | "hydrated" | "missing";
+  status: "loading" | "cached" | "hydrated" | "missing" | "error";
   profile: T | null;
 };
 
@@ -9,7 +9,7 @@ export function reconcileProfileHydration<T>(
   activeRequestId: number,
   update: ProfileHydrationState<T> & { requestId: number }
 ) {
-  if (update.requestId !== activeRequestId) return current;
+  if (update.requestId !== activeRequestId || update.routeKey !== current.routeKey) return current;
   return {
     routeKey: update.routeKey,
     status: update.status,

@@ -11,7 +11,9 @@ import { useDiscoveryPosts } from "@/hooks/use-discovery-posts";
 import { useEngagement } from "@/hooks/use-engagement";
 import { useLanguage } from "@/hooks/use-language";
 import { useSocial } from "@/hooks/use-social";
-import { buildHomeFeed, seededOrder } from "./content-engine";
+import { rankProfileDiscoveryUsers } from "@/features/profile/profile-discovery-ranking";
+import { resolveCountryId } from "@/utils/country-utils";
+import { buildHomeFeed } from "./content-engine";
 import { buildArtJourney } from "./journey-engine";
 import { loadHomeExposures, loadHomeFeedCache, recordHomeExposures, saveHomeFeedCache } from "./cache";
 import { useJourneyExperience } from "./use-journey-experience";
@@ -193,12 +195,15 @@ export function useHomeExperience() {
     if (post.authorId && followedUidSet.has(post.authorId)) return true;
     return followedUsernameSet.has(normalizeIdentity(post.username || post.author));
   }).slice(0, 6), [followedUidSet, followedUsernameSet, posts]);
-  const suggestedUsers = useMemo(() => seededOrder(
-    social.visibleSuggestedUsers
-      .filter((user) => !social.isFollowing({ uid: user.uid, username: user.username }))
-      .map((user) => ({ ...user, id: user.uid || user.username })),
-    `${feed.dayKey}:${uidScope}:users`
-  ), [feed.dayKey, social, uidScope]);
+  const suggestedUsers = useMemo(() => rankProfileDiscoveryUsers(
+    social.visibleSuggestedUsers.filter((user) => !(user.uid && followedUidSet.has(user.uid)) && !followedUsernameSet.has(normalizeIdentity(user.username))),
+    {
+      followingUids: social.followingUids,
+      countryId: resolveCountryId(account.country),
+      interests: account.interests,
+      dayKey: feed.dayKey
+    }
+  ), [account.country, account.interests, feed.dayKey, followedUidSet, followedUsernameSet, social.followingUids, social.visibleSuggestedUsers]);
   const currentSeerLevel = [...seerLevels].reverse().find((level) => seerPoints >= level.requiredPoints) ?? seerLevels[0];
   const isInitialReady = cacheHydrated
     && journeyExperience.loaded

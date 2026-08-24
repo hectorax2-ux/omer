@@ -1,11 +1,13 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { collection, doc, getDocs, getDocsFromServer, limit, orderBy, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDocsFromServer, limit, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore";
 import { firebaseAuth, firestoreDb } from "./core";
 
 const CACHE_PREFIX = "art-atlas:profile-visits:v1";
 const LOCAL_RECORD_COOLDOWN_MS = 30 * 1000;
 const PROFILE_VISIT_LIMIT = 50;
+const PROFILE_VISIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const recentRecords = new Map<string, number>();
+const memorySnapshots = new Map<string, ProfileVisitSnapshot>();
 
 export type ProfileVisitVisibility = "visible" | "anonymous";
 
@@ -27,6 +29,7 @@ export type ProfileVisitIdentity = {
 };
 
 export type ProfileVisitSnapshot = {
+  ownerUid: string;
   summaries: ProfileVisitSummary[];
   identities: ProfileVisitIdentity[];
   lastViewedAt: number;
@@ -55,29 +58,44 @@ export async function saveProfileVisitVisibility(uid: string, visibility: Profil
 }
 
 export async function loadProfileVisitCache(ownerUid: string) {
+  const memory = memorySnapshots.get(ownerUid);
+  if (memory?.ownerUid === ownerUid) return memory;
   const raw = await AsyncStorage.getItem(cacheKey(ownerUid));
   const parsed = raw ? safeJson<ProfileVisitSnapshot>(raw) : null;
   if (!parsed || !Array.isArray(parsed.summaries) || !Array.isArray(parsed.identities)) return null;
-  return parsed;
+  if (parsed.ownerUid && parsed.ownerUid !== ownerUid) return null;
+  const snapshot = { ...parsed, ownerUid };
+  memorySnapshots.set(ownerUid, snapshot);
+  return snapshot;
 }
 
 export async function fetchProfileVisits(ownerUid: string, includeIdentities: boolean) {
+  if (!ownerUid || firebaseAuth.currentUser?.uid !== ownerUid) {
+    throw new ProfileVisitServiceError("auth/not-ready", "Profile visits require the active owner's session.");
+  }
+  const sevenDaysAgo = Timestamp.fromMillis(Date.now() - PROFILE_VISIT_WINDOW_MS);
   const summaryQuery = query(
     collection(firestoreDb, "profileVisitSummaries", ownerUid, "visitors"),
+    where("lastVisitedAt", ">=", sevenDaysAgo),
     orderBy("lastVisitedAt", "desc"),
     limit(PROFILE_VISIT_LIMIT)
   );
   const identityQuery = query(
     collection(firestoreDb, "profileVisitViews", ownerUid, "visitors"),
+    where("lastVisitedAt", ">=", sevenDaysAgo),
     orderBy("lastVisitedAt", "desc"),
     limit(PROFILE_VISIT_LIMIT)
   );
-  const [summarySnapshot, identitySnapshot] = await Promise.all([
-    getDocsFromServer(summaryQuery).catch(() => getDocs(summaryQuery)),
-    includeIdentities ? getDocsFromServer(identityQuery).catch(() => getDocs(identityQuery)) : Promise.resolve(null)
-  ]);
+  const summarySnapshot = await getDocsFromServer(summaryQuery);
+  const identitySnapshot = includeIdentities
+    ? await getDocsFromServer(identityQuery).catch((error) => {
+      console.warn("[Profile visits] Identity view query failed; summary data remains available.", profileVisitErrorDetails(error));
+      return null;
+    })
+    : null;
   const cached = await loadProfileVisitCache(ownerUid);
   const snapshot: ProfileVisitSnapshot = {
+    ownerUid,
     summaries: summarySnapshot.docs.map((item) => {
       const data = item.data();
       return {
@@ -98,17 +116,36 @@ export async function fetchProfileVisits(ownerUid: string, includeIdentities: bo
         visitorUsername: typeof data.visitorUsername === "string" ? data.visitorUsername : undefined,
         visitorPhotoURL: typeof data.visitorPhotoURL === "string" ? data.visitorPhotoURL : undefined
       };
-    }) ?? [],
+    }) ?? cached?.identities ?? [],
     lastViewedAt: cached?.lastViewedAt ?? 0
   };
-  await AsyncStorage.setItem(cacheKey(ownerUid), JSON.stringify(snapshot));
+  await saveProfileVisitSnapshot(snapshot);
   return snapshot;
 }
 
 export async function markProfileVisitsViewed(ownerUid: string, snapshot: ProfileVisitSnapshot) {
   const next = { ...snapshot, lastViewedAt: Date.now() };
-  await AsyncStorage.setItem(cacheKey(ownerUid), JSON.stringify(next));
+  await saveProfileVisitSnapshot(next);
   return next.lastViewedAt;
+}
+
+export function profileVisitErrorDetails(error: unknown) {
+  if (!error || typeof error !== "object") return { code: "unknown" };
+  const code = "code" in error && typeof error.code === "string" ? error.code : "unknown";
+  const message = "message" in error && typeof error.message === "string" ? error.message : undefined;
+  return { code, message };
+}
+
+class ProfileVisitServiceError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+    this.name = "ProfileVisitServiceError";
+  }
+}
+
+async function saveProfileVisitSnapshot(snapshot: ProfileVisitSnapshot) {
+  memorySnapshots.set(snapshot.ownerUid, snapshot);
+  await AsyncStorage.setItem(cacheKey(snapshot.ownerUid), JSON.stringify(snapshot));
 }
 
 function cacheKey(ownerUid: string) {
