@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "infoPlist": {
+      "CFBundleDisplayName": "Art Atlas",
+      "NSPhotoLibraryUsageDescription": "Art Atlas позволяет выбирать изображения из галереи для профиля и публикаций.",
+      "NSCameraUsageDescription": "Art Atlas использует камеру для съёмки фото профиля или работ.",
+      "NSPhotoLibraryAddUsageDescription": "Art Atlas может сохранять выбранные изображения в галерею при экспорте.",
+      "NSUserTrackingUsageDescription": "Art Atlas может использовать идентификатор устройства для улучшения рекламы. Отказ возможен."
+    }
+  }
+}

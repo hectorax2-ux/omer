@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "infoPlist": {
+      "CFBundleDisplayName": "Art Atlas",
+      "NSPhotoLibraryUsageDescription": "Art Atlas profil rasmi va san'at yuklashlari uchun galereyadan rasm tanlashga imkon beradi.",
+      "NSCameraUsageDescription": "Art Atlas profil yoki asar rasmini olish uchun kameradan foydalanadi.",
+      "NSPhotoLibraryAddUsageDescription": "Art Atlas tanlangan rasmlarni eksport qilganda galereyaga saqlashga ruxsat berishi mumkin.",
+      "NSUserTrackingUsageDescription": "Art Atlas reklama tajribasini yaxshilash uchun qurilma identifikatoridan foydalanishi mumkin. Rad etishingiz mumkin."
+    }
+  }
+}

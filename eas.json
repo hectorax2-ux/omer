@@ -1,0 +1,49 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_APP_CHANNEL": "production",
+        "EXPO_PUBLIC_ADMOB_ANDROID_APP_ID": "ca-app-pub-2567631954700803~4945612019",
+        "EXPO_PUBLIC_ADMOB_IOS_APP_ID": "ca-app-pub-2567631954700803~2234698515"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
+      },
+      "ios": {
+        "ascAppId": "6792671640",
+        "ascApiKeyPath": "./AuthKey_ZJHYVP7N84.p8",
+        "ascApiKeyIssuerId": "a1d04693-5b02-4240-9247-9ba87dac73de",
+        "ascApiKeyId": "ZJHYVP7N84"
+      }
+    }
+  }
+}

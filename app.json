@@ -1,0 +1,78 @@
+{
+  "expo": {
+    "name": "Art Atlas",
+    "slug": "art-atlas",
+    "version": "1.0.4",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "artatlas",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "description": "Art Atlas — art community, gallery, quiz, and creative challenges in four languages.",
+    "primaryColor": "#D9B865",
+    "splash": {
+      "image": "./assets/images/art-atlas-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#070503"
+    },
+    "locales": {
+      "tr": "./locales/tr.json",
+      "en": "./locales/en.json",
+      "ru": "./locales/ru.json",
+      "uz": "./locales/uz.json"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.artatlas.app",
+      "usesAppleSignIn": true,
+      "buildNumber": "27",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "CFBundleDisplayName": "Art Atlas",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.artatlas.app",
+      "versionCode": 19,
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#050505"
+      },
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-localization",
+      "expo-apple-authentication",
+      "expo-web-browser",
+      "expo-notifications"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c3868530-92e5-47ad-b174-885d09f1c1ca"
+      },
+      "legalUrls": {
+        "terms": "https://artatlas.app/legal/terms/",
+        "eula": "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+        "privacy": "https://artatlas.app/legal/privacy/",
+        "permissions": "https://artatlas.app/legal/privacy/",
+        "account": "https://artatlas.app/legal/data-deletion/",
+        "dataDeletion": "https://artatlas.app/legal/data-deletion/",
+        "support": "https://artatlas.app/support/"
+      }
+    },
+    "owner": "inowa.uz"
+  }
+}

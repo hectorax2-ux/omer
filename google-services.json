@@ -1,0 +1,62 @@
+{
+  "project_info": {
+    "project_number": "349078695494",
+    "project_id": "artco-62499",
+    "storage_bucket": "artco-62499.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:349078695494:android:2e499aed48367711b1e447",
+        "android_client_info": {
+          "package_name": "com.artatlas.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "349078695494-biq08436337og1fntqmqle53kjdd1bii.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.artatlas.app",
+            "certificate_hash": "4eed3ac645fdf02ce718180ffc670172b493b1d5"
+          }
+        },
+        {
+          "client_id": "349078695494-t906pokggtone17o1lo7vn27agq0dts5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.artatlas.app",
+            "certificate_hash": "08eaddba8f5799d3e2f34793f396a9abc711140b"
+          }
+        },
+        {
+          "client_id": "349078695494-7huai98d92aspv3i3jokpsjaen4sl1oq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBvuBZH2B8pN3MPUlOLo38TF2GZcj6ZSIw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "349078695494-7huai98d92aspv3i3jokpsjaen4sl1oq.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "349078695494-ldb7g31gdq7nlvm5kpbj7f0rsg1h4f3v.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.artatlas.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

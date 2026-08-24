@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "infoPlist": {
+      "CFBundleDisplayName": "Art Atlas",
+      "NSPhotoLibraryUsageDescription": "Art Atlas lets you choose images from your library for profile photos and art uploads.",
+      "NSCameraUsageDescription": "Art Atlas uses the camera so you can capture profile or artwork photos.",
+      "NSPhotoLibraryAddUsageDescription": "Art Atlas can save selected images to your library when you choose to export or share artwork.",
+      "NSUserTrackingUsageDescription": "Art Atlas may use your device identifier to improve ad relevance. You can decline this permission."
+    }
+  }
+}

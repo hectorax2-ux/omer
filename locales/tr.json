@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "infoPlist": {
+      "CFBundleDisplayName": "Art Atlas",
+      "NSPhotoLibraryUsageDescription": "Art Atlas, profil fotoğrafı ve sanat paylaşımları için galeriden görsel seçmenize izin verir.",
+      "NSCameraUsageDescription": "Art Atlas, profil veya eser fotoğrafı çekmeniz için kameraya erişim ister.",
+      "NSPhotoLibraryAddUsageDescription": "Art Atlas, seçtiğiniz görselleri dışa aktarırken galeriye kaydetmenize izin verebilir.",
+      "NSUserTrackingUsageDescription": "Art Atlas, reklam deneyimini iyileştirmek için cihaz tanımlayıcısını kullanabilir. Bu izni reddedebilirsiniz."
+    }
+  }
+}

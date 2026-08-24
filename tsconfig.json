@@ -1,0 +1,31 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "providers/**/*.ts",
+    "providers/**/*.tsx",
+    "hooks/**/*.ts",
+    "hooks/**/*.tsx",
+    "utils/**/*.ts",
+    "utils/**/*.tsx",
+    "constants/**/*.ts",
+    "src/**/*.ts",
+    "types/**/*.ts",
+    "data/**/*.ts",
+    "firebase/shared/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
