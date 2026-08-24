@@ -1,0 +1,90 @@
+workflows:
+  ios-production:
+    name: Art Atlas iOS Production
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+
+    environment:
+      groups:
+        - app_store_connect
+      vars:
+        BUNDLE_ID: "com.artatlas.app"
+        APP_STORE_APPLE_ID: "6792671640"
+        XCODE_WORKSPACE: "ArtAtlas.xcworkspace"
+        XCODE_SCHEME: "ArtAtlas"
+        EXPO_PUBLIC_APP_CHANNEL: "production"
+        EXPO_PUBLIC_ADMOB_ANDROID_APP_ID: "ca-app-pub-2567631954700803~4945612019"
+        EXPO_PUBLIC_ADMOB_IOS_APP_ID: "ca-app-pub-2567631954700803~2234698515"
+        EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: "349078695494-t906pokggtone17o1lo7vn27agq0dts5.apps.googleusercontent.com"
+        EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: "349078695494-ldb7g31gdq7nlvm5kpbj7f0rsg1h4f3v.apps.googleusercontent.com"
+        EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: "349078695494-7huai98d92aspv3i3jokpsjaen4sl1oq.apps.googleusercontent.com"
+      node: 20.19.4
+      xcode: 26.0
+      cocoapods: default
+
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR/node_modules
+        - $HOME/Library/Caches/CocoaPods
+        - $HOME/.cocoapods/repos
+
+    scripts:
+      - name: Install JavaScript dependencies
+        script: npm ci
+
+      - name: Generate the Expo iOS project
+        script: npx expo prebuild --platform ios --no-install
+
+      - name: Install CocoaPods dependencies
+        script: |
+          cd "$CM_BUILD_DIR/ios"
+          pod install --repo-update
+
+      - name: Verify generated Xcode workspace and scheme
+        script: |
+          test -d "$CM_BUILD_DIR/ios/$XCODE_WORKSPACE"
+          xcodebuild \
+            -workspace "$CM_BUILD_DIR/ios/$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -showBuildSettings >/dev/null
+
+      - name: Fetch App Store signing files
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+
+      - name: Apply provisioning profiles
+        script: xcode-project use-profiles
+
+      - name: Set the next App Store build number
+        script: |
+          CONFIGURED_BUILD_NUMBER=$(node -e "process.stdout.write(require('./app.json').expo.ios.buildNumber)")
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" --platform IOS 2>/dev/null || echo 0)
+          NEXT_BUILD_NUMBER=$((LATEST_BUILD_NUMBER + 1))
+          if [ "$NEXT_BUILD_NUMBER" -lt "$CONFIGURED_BUILD_NUMBER" ]; then
+            NEXT_BUILD_NUMBER="$CONFIGURED_BUILD_NUMBER"
+          fi
+          cd "$CM_BUILD_DIR/ios"
+          agvtool new-version -all "$NEXT_BUILD_NUMBER"
+
+      - name: Build signed App Store IPA
+        script: |
+          xcode-project build-ipa \
+            --workspace "$CM_BUILD_DIR/ios/$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
+        submit_to_app_store: false
