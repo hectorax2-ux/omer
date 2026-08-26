@@ -31,6 +31,8 @@ import { fetchTimelineGameState, peekTimelineGameState, prepareTimelineGameQueue
 import { getActiveWeeklyQuizPack, getUserQuizAttempt, resolveQuizWeekIdFromPack, type QuizAttemptRecord } from "@/src/services/firebase/quiz-week-service";
 import type { TimelineGameType } from "@/firebase/shared/timeline-game";
 import { prefetchImageUrls } from "@/utils/image-prefetch";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
+import { useIsFocused } from "@react-navigation/native";
 
 type Lang = "tr" | "en" | "ru" | "uz";
 type GameKey = "jigsaw";
@@ -930,13 +932,16 @@ function GameOrbitHero({ language, reducedMotion, colors, styles }: { language: 
   const middleOrbit = useRef(new Animated.Value(0)).current;
   const innerOrbit = useRef(new Animated.Value(0)).current;
   const corePulse = useRef(new Animated.Value(0)).current;
+  const performanceMode = useRuntimePerformanceMode();
+  const isFocused = useIsFocused();
+  const animate = !reducedMotion && isFocused && performanceMode === "full";
 
   useEffect(() => {
     outerOrbit.setValue(0);
     middleOrbit.setValue(0);
     innerOrbit.setValue(0);
     corePulse.setValue(0);
-    if (reducedMotion) return;
+    if (!animate) return undefined;
     const animations = [
       Animated.loop(Animated.timing(outerOrbit, { toValue: 1, duration: 26_000, easing: Easing.linear, useNativeDriver: true })),
       Animated.loop(Animated.timing(middleOrbit, { toValue: 1, duration: 19_000, easing: Easing.linear, useNativeDriver: true })),
@@ -948,7 +953,7 @@ function GameOrbitHero({ language, reducedMotion, colors, styles }: { language: 
     ];
     animations.forEach((animation) => animation.start());
     return () => animations.forEach((animation) => animation.stop());
-  }, [corePulse, innerOrbit, middleOrbit, outerOrbit, reducedMotion]);
+  }, [animate, corePulse, innerOrbit, middleOrbit, outerOrbit]);
 
   return (
     <LinearGradient colors={[colors.navy, colors.panel, colors.ink]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>

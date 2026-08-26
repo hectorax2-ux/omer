@@ -14,20 +14,23 @@ import { t } from "@/utils/localized-text";
 import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 import type { HomeArtworkItem, HomeGreetingKey } from "../types";
 import { greetingText, reasonText } from "../ui-copy";
+import { useIsFocused } from "@react-navigation/native";
 
-export function DynamicHero({ theme, items, greetingKey, displayName, premium, onOpen }: {
+export function DynamicHero({ theme, items, greetingKey, displayName, premium, onOpen, motionActive = true }: {
   theme: AppTheme;
   items: HomeArtworkItem[];
   greetingKey: HomeGreetingKey;
   displayName: string;
   premium: boolean;
   onOpen: (id: string) => void;
+  motionActive?: boolean;
 }) {
   const { language } = useLanguage();
   const { width } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
   const performanceMode = useRuntimePerformanceMode();
-  const lightweight = reducedMotion || performanceMode !== "full";
+  const isFocused = useIsFocused();
+  const lightweight = reducedMotion || performanceMode !== "full" || !motionActive || !isFocused;
   const [index, setIndex] = useState(0);
   const active = items[index] ?? items[0];
   const compact = width < 360;
@@ -59,8 +62,8 @@ export function DynamicHero({ theme, items, greetingKey, displayName, premium, o
 
   return (
     <View style={styles.hero}>
-      <View style={styles.blueAtmosphere} pointerEvents="none" />
-      <View style={styles.magentaAtmosphere} pointerEvents="none" />
+      <View style={[styles.blueAtmosphere, lightweight && styles.atmosphereLightweight]} pointerEvents="none" />
+      <View style={[styles.magentaAtmosphere, lightweight && styles.atmosphereLightweight]} pointerEvents="none" />
 
       <View style={styles.copyColumn}>
         <View style={styles.welcomeRow}>
@@ -84,7 +87,7 @@ export function DynamicHero({ theme, items, greetingKey, displayName, premium, o
         <ArtworkOrbit items={items} activeIndex={index} size={orbitSize} onOpen={onOpen} />
       </View>
 
-      <PressableScale onPress={() => onOpen(active.id)} wrapStyle={styles.todayPanelPosition} style={styles.todayPanel} accessibilityLabel={`${active.title}, ${active.artist}`}>
+      <PressableScale onPress={() => onOpen(active.id)} wrapStyle={styles.todayPanelPosition} style={[styles.todayPanel, lightweight && styles.todayPanelLightweight]} accessibilityLabel={`${active.title}, ${active.artist}`}>
         <LinearGradient colors={["rgba(12,18,39,0.94)", "rgba(8,24,45,0.78)"]} style={StyleSheet.absoluteFill} />
         <View style={styles.todayCopy}>
           <Text style={styles.todayEyebrow}>{t(homeCopy.dailyArtwork, language)}</Text>
@@ -140,6 +143,7 @@ function createStyles(compact: boolean, width: number) {
     emptyLine: { width: "35%", height: 12, borderRadius: radii.pill, backgroundColor: v2Colors.surface2 },
     blueAtmosphere: { position: "absolute", right: compact ? -28 : -38, top: 2, width: compact ? 218 : 260, height: compact ? 218 : 260, borderRadius: 999, backgroundColor: "rgba(37,99,235,0.11)", shadowColor: v2Colors.blue, shadowOpacity: 0.65, shadowRadius: 34, shadowOffset: { width: 0, height: 0 } },
     magentaAtmosphere: { position: "absolute", left: "24%", bottom: 18, width: 130, height: 90, borderRadius: 999, backgroundColor: "rgba(217,70,239,0.08)", shadowColor: v2Colors.magenta, shadowOpacity: 0.6, shadowRadius: 28, shadowOffset: { width: 0, height: 0 } },
+    atmosphereLightweight: { shadowOpacity: 0, shadowRadius: 0 },
     copyColumn: { width: compact ? "48%" : "51%", minWidth: 0, paddingTop: compact ? 12 : 18, zIndex: 4 },
     welcomeRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     welcome: { ...safeTextLayout, color: v2Colors.textSecondary, fontSize: compact ? 11.5 : 13, lineHeight: compact ? 16 : 18, fontWeight: "600" },
@@ -150,6 +154,7 @@ function createStyles(compact: boolean, width: number) {
     orbitPosition: { position: "absolute", right: compact ? -2 : -5, top: compact ? 2 : 0, zIndex: 2 },
     todayPanelPosition: { position: "absolute", left: 0, bottom: 27, width: panelWidth, zIndex: 8 },
     todayPanel: { width: "100%", minHeight: compact ? 78 : 88, borderRadius: radii.lg, overflow: "hidden", borderWidth: 1, borderColor: "rgba(91,145,255,0.28)", paddingLeft: compact ? 13 : 16, paddingRight: 10, paddingVertical: 11, flexDirection: "row", alignItems: "center", gap: 10, ...elevation("dark", "high") },
+    todayPanelLightweight: { shadowOpacity: 0.12, shadowRadius: 4, elevation: 3 },
     todayCopy: { flex: 1, minWidth: 0 },
     todayEyebrow: { ...safeTextLayout, color: "#C4A7FF", fontSize: 9, lineHeight: 12, fontWeight: "800", letterSpacing: 0.7, textTransform: "uppercase" },
     todayTitle: { ...safeTextLayout, color: v2Colors.text, fontSize: compact ? 15 : 17, lineHeight: compact ? 19 : 21, fontWeight: "800", marginTop: 3 },

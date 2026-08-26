@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { AppChrome } from "@/components/app-chrome";
+import { TabScreenMountGate } from "@/components/tab-screen-mount-gate";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { UserNameWithCountry } from "@/components/user-name-with-country";
 import { ArtworkGridCommentBadge } from "@/components/artwork-grid-comment-badge";
@@ -59,6 +60,11 @@ const PROFILE_IMAGE_STORY_MIN_LENGTH = 10;
 const PROFILE_IMAGE_STORY_MAX_LENGTH = 300;
 
 export default function AccountScreen() {
+  const { language } = useLanguage();
+  return <TabScreenMountGate title={copy.account[language]}><AccountContent /></TabScreenMountGate>;
+}
+
+function AccountContent() {
   const isFocused = useIsFocused();
   const { language } = useLanguage();
   const router = useRouter();

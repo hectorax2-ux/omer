@@ -44,7 +44,7 @@ export function ArtworkOrbit({ items, activeIndex, size, onOpen }: {
 
   return (
     <View style={[styles.root, { width: size, height: size }]} pointerEvents="box-none">
-      <View style={styles.ambient} pointerEvents="none" />
+      <View style={[styles.ambient, lightweight && styles.ambientLightweight]} pointerEvents="none" />
       {rotations.map((rotation, index) => {
         const orbitScale = [1, 0.88, 1.08][index];
         const rotationRange = index === 1 ? ["360deg", "0deg"] : ["0deg", "360deg"];
@@ -113,7 +113,7 @@ export function ArtworkOrbit({ items, activeIndex, size, onOpen }: {
               }
             ]}
           >
-            <Animated.View style={[styles.satelliteAnchor, { width: satelliteSize, height: satelliteSize, borderRadius: satelliteSize / 2, marginLeft: -satelliteSize / 2, transform: [{ scaleY: 1 / [0.72, 0.82, 0.62][index] }, { rotate: counterSpin }] }]}>
+            <Animated.View style={[styles.satelliteAnchor, lightweight && styles.satelliteAnchorLightweight, { width: satelliteSize, height: satelliteSize, borderRadius: satelliteSize / 2, marginLeft: -satelliteSize / 2, transform: [{ scaleY: 1 / [0.72, 0.82, 0.62][index] }, { rotate: counterSpin }] }]}>
               <PressableScale onPress={() => onOpen(item.id)} wrapStyle={styles.satelliteWrap} style={styles.satelliteButton} accessibilityLabel={item.title}>
                 <HomeImage uri={item.image} style={styles.satelliteImage} contentFit="cover" transition={lightweight ? 0 : 180} />
               </PressableScale>
@@ -129,7 +129,7 @@ export function ArtworkOrbit({ items, activeIndex, size, onOpen }: {
         scaleTo={0.97}
         accessibilityLabel={`${active.title}, ${active.artist}`}
       >
-        <View style={styles.mainRing}>
+        <View style={[styles.mainRing, lightweight && styles.mainRingLightweight]}>
           <HomeImage uri={active.image} style={styles.mainImage} contentFit="cover" transition={lightweight ? 0 : 260} />
         </View>
       </PressableScale>
@@ -140,14 +140,17 @@ export function ArtworkOrbit({ items, activeIndex, size, onOpen }: {
 const styles = StyleSheet.create({
   root: { position: "relative", alignItems: "center", justifyContent: "center" },
   ambient: { position: "absolute", width: "72%", height: "72%", borderRadius: 999, backgroundColor: "rgba(61,82,255,0.18)", shadowColor: v2Colors.brightViolet, shadowOpacity: 0.8, shadowRadius: 34, shadowOffset: { width: 0, height: 0 } },
+  ambientLightweight: { shadowOpacity: 0, shadowRadius: 0 },
   orbit: { position: "absolute", left: "50%", top: "50%" },
   satelliteOrbit: { position: "absolute", left: "50%", top: "50%" },
   satelliteAnchor: { position: "absolute", left: "50%", top: 0, marginTop: -7, borderWidth: 1.5, borderColor: "rgba(126,184,255,0.9)", backgroundColor: v2Colors.background, padding: 2, shadowColor: v2Colors.cyan, shadowOpacity: 0.74, shadowRadius: 10, shadowOffset: { width: 0, height: 0 }, elevation: 8 },
+  satelliteAnchorLightweight: { shadowOpacity: 0, shadowRadius: 0, elevation: 2 },
   satelliteWrap: { flex: 1 },
   satelliteButton: { flex: 1, borderRadius: 999, overflow: "hidden" },
   satelliteImage: { width: "100%", height: "100%", borderRadius: 999 },
   mainWrap: { position: "absolute", left: "50%", top: "50%", zIndex: 5 },
   mainButton: { flex: 1, borderRadius: 999 },
   mainRing: { flex: 1, borderRadius: 999, padding: 3, borderWidth: 2, borderColor: "rgba(137,116,255,0.95)", backgroundColor: v2Colors.backgroundSecondary, shadowColor: v2Colors.brightViolet, shadowOpacity: 0.82, shadowRadius: 22, shadowOffset: { width: 0, height: 0 }, elevation: 12 },
+  mainRingLightweight: { shadowOpacity: 0.14, shadowRadius: 4, elevation: 4 },
   mainImage: { width: "100%", height: "100%", borderRadius: 999 }
 });

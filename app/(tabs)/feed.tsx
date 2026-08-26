@@ -5,6 +5,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import { AdSlot, AppChrome } from "@/components/app-chrome";
+import { TabScreenMountGate } from "@/components/tab-screen-mount-gate";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { useAds } from "@/hooks/use-ads";
 import { AuthRequired } from "@/components/auth-required";
@@ -34,7 +35,7 @@ import { firebaseAuth } from "@/src/services/firebase/core";
 
 const MAX_POST_LENGTH = 1000;
 const PREVIEW_LENGTH = 150;
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 10;
 type FeedSection = "new" | "premium" | "popular" | "contributors";
 type FeedLanguageFilter = Language | "all";
 
@@ -66,6 +67,11 @@ const deletePostConfirmText = {
 
 export default function FeedDiscoverScreen() {
   const { language } = useLanguage();
+  return <TabScreenMountGate title={uiCopy.feedDiscover[language]}><FeedDiscoverContent /></TabScreenMountGate>;
+}
+
+function FeedDiscoverContent() {
+  const { language } = useLanguage();
   const { theme } = useAppTheme();
   const { account, isAuthenticated, canUseMemberFeatures } = useAccount();
   const { adSettings } = useAds();
@@ -82,7 +88,6 @@ export default function FeedDiscoverScreen() {
   const [draftText, setDraftText] = useState("");
   const [draftKind, setDraftKind] = useState<PostKind>("own");
   const [editorError, setEditorError] = useState("");
-  const [clockTick, setClockTick] = useState(0);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [section, setSection] = useState<FeedSection>("new");
   const [feedLanguage, setFeedLanguage] = useState<FeedLanguageFilter>(language);
@@ -106,7 +111,6 @@ export default function FeedDiscoverScreen() {
   const canRevealMoreLocally = visibleCount < totalSectionItems;
   const showMoreButton = canRevealMoreLocally || (section !== "contributors" && hasMorePosts);
   const postLimitStatus = getPostLimitStatus(account.username);
-  void clockTick;
 
   async function handleShowMore() {
     if (section !== "contributors" && visibleCount + PAGE_SIZE > filteredPosts.length && hasMorePosts) {
@@ -122,12 +126,6 @@ export default function FeedDiscoverScreen() {
   useEffect(() => {
     setFeedLanguage(language);
   }, [language]);
-
-  useEffect(() => {
-    if (!modalOpen) return;
-    const timer = setInterval(() => setClockTick((value) => value + 1), 1000);
-    return () => clearInterval(timer);
-  }, [modalOpen]);
 
   if (!isAuthenticated) {
     return <AuthRequired title={uiCopy.feedDiscover[language]} />;
@@ -377,6 +375,14 @@ export function PostEditorModal({ visible, editing, draftText, draftKind, setDra
   styles: ReturnType<typeof createStyles>;
   colors: ReturnType<typeof getThemeColors>;
 }) {
+  const [, setClockTick] = useState(0);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const timer = setInterval(() => setClockTick((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, [visible]);
+
   const now = Date.now();
   const cooldownActive = !editing && isPostCooldownActive(limitStatus, now);
   const cooldownText = cooldownActive ? buildCooldownMessage(limitStatus, language, now) : "";

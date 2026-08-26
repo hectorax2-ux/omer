@@ -69,6 +69,25 @@ export type DiscoveryComment = {
   editedAt?: number;
 };
 
+function sameDiscoveryPost(left: DiscoveryPost, right: DiscoveryPost) {
+  return left.id === right.id
+    && left.language === right.language
+    && left.authorId === right.authorId
+    && left.author === right.author
+    && left.username === right.username
+    && left.authorPhotoURL === right.authorPhotoURL
+    && left.text === right.text
+    && left.kind === right.kind
+    && left.likes === right.likes
+    && left.createdAt === right.createdAt
+    && left.image === right.image
+    && left.isPremium === right.isPremium
+    && left.hidden === right.hidden
+    && left.pendingReview === right.pendingReview
+    && left.profileLinkDisabled === right.profileLinkDisabled
+    && left.publishedByAdmin === right.publishedByAdmin;
+}
+
 type NewPost = Omit<DiscoveryPost, "id" | "language" | "likes" | "createdAt"> & { skipLimits?: boolean };
 
 type DiscoveryPostContextValue = {
@@ -137,10 +156,17 @@ export function DiscoveryPostProvider({ children }: PropsWithChildren) {
     setPosts((current) => {
       const merged = new Map<string, DiscoveryPost>();
       current.forEach((post) => merged.set(post.id, post));
+      let changed = false;
       remotePosts.forEach((post) => {
         const pendingDelta = pendingLikeDeltaRef.current.get(post.id) ?? 0;
-        merged.set(post.id, pendingDelta ? { ...post, likes: Math.max(0, post.likes + pendingDelta) } : post);
+        const next = pendingDelta ? { ...post, likes: Math.max(0, post.likes + pendingDelta) } : post;
+        const previous = merged.get(post.id);
+        if (!previous || !sameDiscoveryPost(previous, next)) {
+          merged.set(post.id, next);
+          changed = true;
+        }
       });
+      if (!changed) return current;
       return [...merged.values()].sort((a, b) => b.createdAt - a.createdAt);
     });
   }, []);

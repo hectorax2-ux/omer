@@ -1,3 +1,6 @@
+import { InteractionManager } from "react-native";
+import { isInteractionPerformanceLocked } from "@/hooks/use-runtime-performance-mode";
+
 type PerformanceSpan = {
   end: (details?: Record<string, string | number | boolean>) => void;
 };
@@ -47,4 +50,17 @@ export function startPerformanceSpan(name: string): PerformanceSpan {
       markPerformanceEvent(name, { durationMs, ...details });
     }
   };
+}
+
+export function runAfterInteractions<T>(task: () => T | Promise<T>) {
+  return new Promise<T>((resolve, reject) => {
+    const execute = () => {
+      if (isInteractionPerformanceLocked()) {
+        setTimeout(execute, 80);
+        return;
+      }
+      Promise.resolve(task()).then(resolve, reject);
+    };
+    InteractionManager.runAfterInteractions(execute);
+  });
 }

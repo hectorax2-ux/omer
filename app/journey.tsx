@@ -16,6 +16,8 @@ import { journeyProgressPercent } from "@/features/home/journey-engine";
 import type { JourneyStageView } from "@/features/home/types";
 import { difficultyText, journeyStateText } from "@/features/home/ui-copy";
 import { useHomeExperience } from "@/features/home/use-home-experience";
+import { getStandardListPerformanceProps } from "@/constants/list-performance";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 
 export default function JourneyScreen() {
   const { isAuthenticated } = useAccount();
@@ -31,6 +33,7 @@ function AuthenticatedJourneyScreen() {
   const compact = width < 360;
   const styles = useMemo(() => createStyles(width), [width]);
   const home = useHomeExperience();
+  const performanceMode = useRuntimePerformanceMode();
   const percent = journeyProgressPercent(home.journey, home.journeyExperience.progress);
   const chapterImages = useMemo(() => new Map(home.journey.chapters.map((chapter) => [
     chapter.id,
@@ -50,9 +53,7 @@ function AuthenticatedJourneyScreen() {
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.list}
-        initialNumToRender={10}
-        maxToRenderPerBatch={10}
-        windowSize={7}
+        {...getStandardListPerformanceProps(performanceMode)}
         ListHeaderComponent={(
           <View style={styles.header}>
             <View style={styles.headerGlow} pointerEvents="none" />

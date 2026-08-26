@@ -1,9 +1,8 @@
-import { ReactNode, RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, GestureResponderEvent, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, RefreshControl, ScrollView, StyleProp, StyleSheet, Text, TextInput, useWindowDimensions, View, ViewStyle } from "react-native";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Easing, FlatList, GestureResponderEvent, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, RefreshControl, ScrollView, StyleProp, StyleSheet, Text, TextInput, useWindowDimensions, View, ViewStyle } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from "expo-blur";
 import { usePathname, useRouter, useSegments } from "expo-router";
 import { UserRoleId } from "@/constants/profile-taxonomy";
 import { AppTheme, colors, getThemeColors, isBrightTheme } from "@/constants/theme";
@@ -34,15 +33,16 @@ import { ChromeTitle } from "@/components/chrome-title";
 import { ThemePickerModal, getThemePickerLabel } from "@/components/theme-picker-modal";
 import { homeCopy } from "@/app/i18n/common";
 import { t } from "@/utils/localized-text";
-import { getAppShortcutVisibility, requestAtlasClubHomeScroll } from "@/utils/atlas-club-navigation";
+import { getAppShortcutVisibility } from "@/utils/atlas-club-navigation";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { useIsFocused } from "@react-navigation/native";
+import { beginNavigationPerformanceLock, beginScrollPerformanceLock, endScrollPerformanceLock } from "@/hooks/use-runtime-performance-mode";
 
 type ChromeChild = ReactNode | ((refreshVersion: number) => ReactNode);
 
-export type AppChromeScrollRequest = {
-  id: number;
-  targetRef?: RefObject<View | null>;
-  y?: number;
+export type AppChromeVirtualizedItem = {
+  key: string;
+  content: ReactNode;
 };
 
 type Props = {
@@ -63,14 +63,15 @@ type Props = {
   keyboardVerticalOffset?: number;
   topAdContent?: ReactNode;
   onNavigationRequest?: (navigate: () => void) => void;
-  onAtlasClubPress?: () => void;
-  scrollRequest?: AppChromeScrollRequest | null;
   fixedFooter?: ReactNode;
   fixedFooterHeight?: number;
-  children: ChromeChild;
+  children?: ChromeChild;
+  virtualizedItems?: readonly AppChromeVirtualizedItem[];
+  virtualizedInitialNumToRender?: number;
+  onVirtualizedViewableItemsChanged?: (keys: string[]) => void;
 };
 
-export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, showBackButton = false, backToHome = false, showBottomDock: showBottomDockProp, showFloatingShortcuts = true, floatingCreateAction, keyboardAvoiding = false, keyboardVerticalOffset = 0, topAdContent, onNavigationRequest, onAtlasClubPress, scrollRequest, fixedFooter, fixedFooterHeight = 0 }: Props) {
+export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, showBackButton = false, backToHome = false, showBottomDock: showBottomDockProp, showFloatingShortcuts = true, floatingCreateAction, keyboardAvoiding = false, keyboardVerticalOffset = 0, topAdContent, onNavigationRequest, fixedFooter, fixedFooterHeight = 0, virtualizedItems, virtualizedInitialNumToRender = 6, onVirtualizedViewableItemsChanged }: Props) {
   const insets = useSafeAreaInsets();
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -79,14 +80,14 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const [pullDistance, setPullDistance] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const virtualizedRef = useRef<FlatList<AppChromeVirtualizedItem>>(null);
   const scrollYRef = useRef(0);
-  const scrollTargetExpiresAtRef = useRef(0);
-  const scrollTargetFrameRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const { language } = useLanguage();
   const accessibilityCopy = chromeAccessibilityCopy(language);
   const { theme } = useAppTheme();
   const reducedMotion = useReducedMotion();
+  const isFocused = useIsFocused();
   const { refreshAll } = useRefresh();
   const themeColors = getThemeColors(theme);
   const chromeAccent = v2Colors.primary;
@@ -104,6 +105,7 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const { notifications: systemNotifications } = useArtSystems();
   const { width } = useWindowDimensions();
   const Content = scroll ? ScrollView : View;
+  const usesVirtualizedContent = Boolean(virtualizedItems);
   const horizontalPadding = width < 360 ? 16 : width > 720 ? 24 : 18;
   const veryCompactHeader = width < 360;
   const compactHeader = width < 430;
@@ -135,15 +137,17 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const compactLanguageStyle = compactHeader ? styles.languageButtonCompact : undefined;
   const veryCompactLanguageStyle = veryCompactHeader ? styles.languageButtonVeryCompact : undefined;
   const resolvedShowTopAd = showTopAd ?? isCategoryTopBannerRoute(pathname);
-  const navigate = (action: () => void) => onNavigationRequest ? onNavigationRequest(action) : action();
-
-  function openAtlasClub() {
-    if (onAtlasClubPress) {
-      onAtlasClubPress();
+  const navigate = (action: () => void) => {
+    beginNavigationPerformanceLock();
+    if (onNavigationRequest) {
+      onNavigationRequest(action);
       return;
     }
-    requestAtlasClubHomeScroll();
-    navigate(() => router.replace("/(tabs)"));
+    action();
+  };
+
+  function openAtlasClub() {
+    navigate(() => router.push("/atlas-club"));
   }
 
   useEffect(() => {
@@ -160,30 +164,20 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   }, []);
 
   const scrollScope = segments[0] === "(tabs)" ? normalizedPathname.split("/").filter(Boolean)[0] ?? "index" : normalizedPathname;
-  useEffect(() => subscribeScrollToTop(scrollScope, () => scrollRef.current?.scrollTo({ y: 0, animated: true })), [scrollScope]);
-
-  const scrollToRequest = useCallback((request: AppChromeScrollRequest, animated: boolean) => {
-    const target = request.targetRef?.current;
-    if (!target) {
-      if (request.y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, request.y), animated });
+  useEffect(() => subscribeScrollToTop(scrollScope, () => {
+    if (usesVirtualizedContent) {
+      virtualizedRef.current?.scrollToOffset({ offset: 0, animated: true });
       return;
     }
-    const contentNode = scrollRef.current?.getInnerViewNode();
-    if (!contentNode) return;
-    target.measureLayout(contentNode, (_x, targetY) => {
-      scrollRef.current?.scrollTo({ y: Math.max(0, targetY), animated });
-    });
-  }, []);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }), [scrollScope, usesVirtualizedContent]);
 
-  useEffect(() => {
-    if (!scroll || !scrollRequest) return;
-    scrollTargetExpiresAtRef.current = Date.now() + 8000;
-    scrollToRequest(scrollRequest, true);
-  }, [scroll, scrollRequest, scrollToRequest]);
-
-  useEffect(() => () => {
-    if (scrollTargetFrameRef.current !== null) cancelAnimationFrame(scrollTargetFrameRef.current);
-  }, []);
+  const viewabilityCallbackRef = useRef(onVirtualizedViewableItemsChanged);
+  viewabilityCallbackRef.current = onVirtualizedViewableItemsChanged;
+  const handleViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { item: AppChromeVirtualizedItem }[] }) => {
+    viewabilityCallbackRef.current?.(viewableItems.map(({ item }) => item.key));
+  }).current;
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 8, minimumViewTime: 80 }).current;
 
   async function refreshPage() {
     if (refreshing) return;
@@ -201,24 +195,17 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
     scrollYRef.current = event.nativeEvent.contentOffset.y;
   }
 
-  function handleContentSizeChange() {
-    if (!scrollRequest?.targetRef || Date.now() > scrollTargetExpiresAtRef.current) return;
-    if (scrollTargetFrameRef.current !== null) cancelAnimationFrame(scrollTargetFrameRef.current);
-    scrollTargetFrameRef.current = requestAnimationFrame(() => {
-      scrollTargetFrameRef.current = null;
-      scrollToRequest(scrollRequest, true);
-    });
-  }
-
   function handleTouchStart(event: GestureResponderEvent) {
-    scrollTargetExpiresAtRef.current = 0;
     touchStartYRef.current = event.nativeEvent.pageY;
   }
 
   function handleTouchMove(event: GestureResponderEvent) {
     if (!scroll || refreshing || scrollYRef.current > 4 || touchStartYRef.current === null) return;
     const distance = Math.max(0, event.nativeEvent.pageY - touchStartYRef.current);
-    if (distance > 10) setPullDistance(Math.min(distance, 86));
+    if (distance > 10) {
+      const next = Math.min(distance, 86);
+      setPullDistance((current) => Math.abs(current - next) >= 4 ? next : current);
+    }
   }
 
   function handleTouchEnd() {
@@ -237,12 +224,8 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
         locations={[0, 0.48, 1]}
         style={styles.backdrop}
       />
-      <AmbientBackdrop theme={theme} />
-      <ChromeGlass
-        intensity={isBrightTheme(theme) ? 40 : 30}
-        tint={isBrightTheme(theme) ? "light" : "dark"}
-        style={[styles.header, themeStyles.header, { paddingHorizontal: horizontalPadding, gap: headerGap }]}
-      >
+      <AmbientBackdrop theme={theme} active={isFocused} />
+      <ChromeGlass style={[styles.header, themeStyles.header, { paddingHorizontal: horizontalPadding, gap: headerGap }]}>
         {showBackButton ? (
           <Pressable accessibilityRole="button" accessibilityLabel={backToHome ? accessibilityCopy.home : accessibilityCopy.back} hitSlop={5} onPress={() => navigate(() => backToHome ? router.replace("/(tabs)") : router.back())} style={[styles.backButton, themeStyles.headerButton, compactButtonStyle, veryCompactHeader && styles.headerButtonVeryCompact, { width: headerControlSize, height: headerControlSize }]}>
             <Ionicons name={backToHome ? "home" : "arrow-back"} size={20} color={chromeAccent} />
@@ -288,40 +271,73 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={keyboardVerticalOffset}
       >
-        <Content
-          ref={scroll ? scrollRef : undefined}
-          style={styles.content}
-          contentContainerStyle={scroll ? [styles.contentContainer, { paddingHorizontal: horizontalPadding, paddingBottom: contentBottomPadding }] : undefined}
-          showsVerticalScrollIndicator={false}
-          onScroll={scroll ? handleScroll : undefined}
-          onContentSizeChange={scroll ? handleContentSizeChange : undefined}
-          scrollEventThrottle={16}
-          onTouchStart={scroll ? handleTouchStart : undefined}
-          onTouchMove={scroll ? handleTouchMove : undefined}
-          onTouchEnd={scroll ? handleTouchEnd : undefined}
-          onTouchCancel={scroll ? handleTouchEnd : undefined}
-          bounces
-          alwaysBounceVertical={scroll}
-          overScrollMode="always"
-          keyboardShouldPersistTaps={scroll ? "handled" : undefined}
-          refreshControl={
-            scroll ? <RefreshControl refreshing={refreshing} onRefresh={refreshPage} tintColor={chromeAccent} colors={[chromeAccent]} progressBackgroundColor={themeColors.panel} /> : undefined
-          }
-        >
-          {scroll && (pullDistance > 12 || refreshing) ? (
-            <View style={[styles.pullHint, { opacity: refreshing ? 1 : Math.min(1, pullDistance / 70) }]}>
-              <Ionicons name="refresh" size={16} color={chromeAccent} />
-              <Text style={[styles.pullHintText, { color: chromeAccent }]}>
-                {refreshing
-                  ? language === "tr" ? "Yenileniyor" : "Refreshing"
-                  : language === "tr" ? "Yenilemek için bırak" : "Release to refresh"}
-              </Text>
-            </View>
-          ) : null}
-          <View key={refreshVersion} style={!scroll ? styles.staticChild : undefined}>
-            {typeof children === "function" ? children(refreshVersion) : children}
-          </View>
-        </Content>
+        {usesVirtualizedContent ? (
+          <FlatList
+            ref={virtualizedRef}
+            data={virtualizedItems as AppChromeVirtualizedItem[]}
+            renderItem={({ item }) => <View key={`${item.key}:${refreshVersion}`}>{item.content}</View>}
+            keyExtractor={(item) => item.key}
+            style={styles.content}
+            contentContainerStyle={[styles.contentContainer, { paddingHorizontal: horizontalPadding, paddingBottom: contentBottomPadding }]}
+            showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            onScrollBeginDrag={beginScrollPerformanceLock}
+            onScrollEndDrag={endScrollPerformanceLock}
+            onMomentumScrollBegin={beginScrollPerformanceLock}
+            onMomentumScrollEnd={endScrollPerformanceLock}
+            scrollEventThrottle={32}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
+            keyboardShouldPersistTaps="handled"
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshPage} tintColor={chromeAccent} colors={[chromeAccent]} progressBackgroundColor={themeColors.panel} />}
+            initialNumToRender={virtualizedInitialNumToRender}
+            maxToRenderPerBatch={3}
+            updateCellsBatchingPeriod={48}
+            windowSize={5}
+            removeClippedSubviews={Platform.OS === "android"}
+            onViewableItemsChanged={handleViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+            onScrollToIndexFailed={({ index }) => requestAnimationFrame(() => virtualizedRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 }))}
+            ListHeaderComponent={scroll && (pullDistance > 12 || refreshing) ? (
+              <View style={[styles.pullHint, { opacity: refreshing ? 1 : Math.min(1, pullDistance / 70) }]}>
+                <Ionicons name="refresh" size={16} color={chromeAccent} />
+                <Text style={[styles.pullHintText, { color: chromeAccent }]}>{refreshing ? language === "tr" ? "Yenileniyor" : "Refreshing" : language === "tr" ? "Yenilemek için bırak" : "Release to refresh"}</Text>
+              </View>
+            ) : null}
+          />
+        ) : (
+          <Content
+            ref={scroll ? scrollRef : undefined}
+            style={styles.content}
+            contentContainerStyle={scroll ? [styles.contentContainer, { paddingHorizontal: horizontalPadding, paddingBottom: contentBottomPadding }] : undefined}
+            showsVerticalScrollIndicator={false}
+            onScroll={scroll ? handleScroll : undefined}
+            onScrollBeginDrag={scroll ? beginScrollPerformanceLock : undefined}
+            onScrollEndDrag={scroll ? endScrollPerformanceLock : undefined}
+            onMomentumScrollBegin={scroll ? beginScrollPerformanceLock : undefined}
+            onMomentumScrollEnd={scroll ? endScrollPerformanceLock : undefined}
+            scrollEventThrottle={32}
+            onTouchStart={scroll ? handleTouchStart : undefined}
+            onTouchMove={scroll ? handleTouchMove : undefined}
+            onTouchEnd={scroll ? handleTouchEnd : undefined}
+            onTouchCancel={scroll ? handleTouchEnd : undefined}
+            bounces
+            alwaysBounceVertical={scroll}
+            overScrollMode="always"
+            keyboardShouldPersistTaps={scroll ? "handled" : undefined}
+            refreshControl={scroll ? <RefreshControl refreshing={refreshing} onRefresh={refreshPage} tintColor={chromeAccent} colors={[chromeAccent]} progressBackgroundColor={themeColors.panel} /> : undefined}
+          >
+            {scroll && (pullDistance > 12 || refreshing) ? (
+              <View style={[styles.pullHint, { opacity: refreshing ? 1 : Math.min(1, pullDistance / 70) }]}>
+                <Ionicons name="refresh" size={16} color={chromeAccent} />
+                <Text style={[styles.pullHintText, { color: chromeAccent }]}>{refreshing ? language === "tr" ? "Yenileniyor" : "Refreshing" : language === "tr" ? "Yenilemek için bırak" : "Release to refresh"}</Text>
+              </View>
+            ) : null}
+            <View key={refreshVersion} style={!scroll ? styles.staticChild : undefined}>{typeof children === "function" ? children(refreshVersion) : children}</View>
+          </Content>
+        )}
       </KeyboardAvoidingView>
       {fixedFooter ? (
         <View pointerEvents="box-none" style={[styles.fixedFooterHost, { left: horizontalPadding, right: horizontalPadding, bottom: fixedFooterBottom }]}>
@@ -334,24 +350,23 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
             <FloatingShortcutButton
               accessibilityLabel={t(homeCopy.atlasClub, language)}
               accessibilityHint={t(homeCopy.atlasClubHint, language)}
+              label={width < 390 ? "Club" : t(homeCopy.atlasClub, language)}
               onPress={openAtlasClub}
               reducedMotion={reducedMotion}
               variant="violet"
-              bright={isBrightTheme(theme)}
             >
-              <Ionicons name="sparkles" size={19} color="#F4DDFF" />
+              <Ionicons name="sparkles" size={13} color="#EEEAFE" />
             </FloatingShortcutButton>
           ) : null}
           {shortcutVisibility.showPremium ? (
             <FloatingShortcutButton
               accessibilityLabel={accessibilityCopy.premium}
+              label={accessibilityCopy.premium}
               onPress={() => navigate(() => router.push("/premium" as never))}
               reducedMotion={reducedMotion}
               variant="gold"
-              bright={isBrightTheme(theme)}
-              active={account.isPremium}
             >
-              <Ionicons name={account.isPremium ? "diamond" : "diamond-outline"} size={18} color="#FFD978" />
+              <Ionicons name={account.isPremium ? "diamond" : "diamond-outline"} size={13} color="#E8D18F" />
             </FloatingShortcutButton>
           ) : null}
           {showFloatingCreate ? (
@@ -375,7 +390,7 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
           ) : null}
         </View>
       ) : null}
-      {showBottomDock ? <BottomDock themeColors={themeColors} pathname={pathname} theme={theme} onActiveTabPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })} onNavigate={navigate} /> : null}
+      {showBottomDock ? <BottomDock themeColors={themeColors} pathname={pathname} theme={theme} onActiveTabPress={() => usesVirtualizedContent ? virtualizedRef.current?.scrollToOffset({ offset: 0, animated: true }) : scrollRef.current?.scrollTo({ y: 0, animated: true })} onNavigate={navigate} /> : null}
       <GlobalAdOverlays />
       <LanguageGate />
       <LegalGate />
@@ -383,33 +398,17 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   );
 }
 
-function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, onPress, reducedMotion, variant, bright, active = false, children }: {
+function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, label, onPress, reducedMotion, variant, children }: {
   accessibilityLabel: string;
   accessibilityHint?: string;
+  label: string;
   onPress: () => void;
   reducedMotion: boolean;
   variant: "violet" | "gold";
-  bright: boolean;
-  active?: boolean;
   children: ReactNode;
 }) {
-  const breath = useRef(new Animated.Value(0)).current;
   const press = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    breath.stopAnimation();
-    if (reducedMotion) {
-      breath.setValue(0);
-      press.setValue(0);
-      return undefined;
-    }
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(breath, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      Animated.timing(breath, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true })
-    ]));
-    loop.start();
-    return () => loop.stop();
-  }, [breath, press, reducedMotion]);
+  const [hovered, setHovered] = useState(false);
 
   function setPressed(pressed: boolean) {
     press.stopAnimation();
@@ -417,23 +416,18 @@ function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, onPress
       press.setValue(0);
       return;
     }
-    if (pressed) {
-      Animated.timing(press, { toValue: 1, duration: 85, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
-      return;
-    }
-    Animated.sequence([
-      Animated.timing(press, { toValue: 2, duration: 70, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.timing(press, { toValue: 0, duration: 80, easing: Easing.inOut(Easing.quad), useNativeDriver: true })
-    ]).start();
+    Animated.timing(press, {
+      toValue: pressed ? 1 : 0,
+      duration: pressed ? 100 : 120,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true
+    }).start();
   }
 
   const violet = variant === "violet";
   const gradient = violet
-    ? bright ? ["#512066", "#7D2C78", "#34204D"] as const : ["#2B123E", "#6B1F68", "#241133"] as const
-    : active ? ["#111B35", "#514125", "#A97622"] as const : ["#0B1732", "#2F2940", "#77551E"] as const;
-  const borderColor = violet
-    ? bright ? "rgba(112,45,124,0.66)" : "rgba(224,137,240,0.62)"
-    : active ? "rgba(255,218,132,0.78)" : "rgba(228,178,73,0.62)";
+    ? ["#4841A3", "#312E6F"] as const
+    : ["#594721", "#3D321D"] as const;
 
   return (
     <Animated.View
@@ -441,36 +435,32 @@ function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, onPress
         styles.floatingShortcutMotion,
         violet ? styles.atlasClubShortcut : styles.premiumShortcut,
         {
-          opacity: reducedMotion ? 1 : breath.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }),
-          transform: [{ scale: reducedMotion ? 1 : breath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.025] }) }]
+          transform: [{ scale: reducedMotion ? 1 : press.interpolate({ inputRange: [0, 1], outputRange: [1, 0.96] }) }]
         }
       ]}
     >
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.floatingShortcutHalo,
-          violet ? styles.floatingShortcutHaloViolet : styles.floatingShortcutHaloGold,
-          { opacity: reducedMotion ? 0.42 : breath.interpolate({ inputRange: [0, 1], outputRange: [0.28, 0.5] }) }
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
+        hitSlop={4}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        onPress={onPress}
+        onPressIn={() => setPressed(true)}
+        onPressOut={() => setPressed(false)}
+        style={({ pressed }) => [
+          styles.floatingPill,
+          violet ? styles.floatingPillViolet : styles.floatingPillGold,
+          hovered && styles.floatingPillHovered,
+          pressed && styles.floatingPillPressed
         ]}
-      />
-      <Animated.View style={[styles.floatingShortcutPressMotion, { transform: [{ scale: reducedMotion ? 1 : press.interpolate({ inputRange: [0, 1, 2], outputRange: [1, 0.94, 1.03] }) }] }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={accessibilityLabel}
-          accessibilityHint={accessibilityHint}
-          hitSlop={4}
-          onPress={onPress}
-          onPressIn={() => setPressed(true)}
-          onPressOut={() => setPressed(false)}
-          style={[styles.floatingShortcut, { borderColor }]}
-        >
-          <LinearGradient colors={gradient} start={{ x: 0.12, y: 0.08 }} end={{ x: 0.88, y: 0.92 }} style={StyleSheet.absoluteFill} pointerEvents="none" />
-          <View pointerEvents="none" style={[styles.floatingShortcutInnerGlow, violet ? styles.floatingShortcutInnerGlowViolet : styles.floatingShortcutInnerGlowGold]} />
-          <View pointerEvents="none" style={styles.floatingShortcutHighlight} />
-          {children}
-        </Pressable>
-      </Animated.View>
+      >
+        <LinearGradient colors={gradient} start={{ x: 0.06, y: 0.08 }} end={{ x: 0.94, y: 0.92 }} style={StyleSheet.absoluteFill} pointerEvents="none" />
+        <View pointerEvents="none" style={[styles.floatingPillHoverWash, violet ? styles.floatingPillHoverWashViolet : styles.floatingPillHoverWashGold, hovered && styles.floatingPillHoverWashVisible]} />
+        {children}
+        <Text numberOfLines={1} maxFontSizeMultiplier={1.15} style={styles.floatingPillLabel}>{label}</Text>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -890,9 +880,8 @@ function BottomDock({ themeColors, pathname, onActiveTabPress, theme, onNavigate
   );
 }
 
-function ChromeGlass({ children, intensity, tint, style }: { children: ReactNode; intensity: number; tint: "light" | "dark"; style: StyleProp<ViewStyle> }) {
-  if (Platform.OS === "android") return <View style={style}>{children}</View>;
-  return <BlurView intensity={intensity} tint={tint} style={style}>{children}</BlurView>;
+function ChromeGlass({ children, style }: { children: ReactNode; intensity?: number; tint?: "light" | "dark"; style: StyleProp<ViewStyle> }) {
+  return <View style={style}>{children}</View>;
 }
 
 function makeChromeThemeStyles(c: ReturnType<typeof getThemeColors>, theme: AppTheme) {
@@ -1169,30 +1158,9 @@ const styles = StyleSheet.create({
     alignItems: "center"
   },
   floatingShortcutMotion: {
-    width: navigationLayout.floatingActionSize,
     height: navigationLayout.floatingActionSize,
-    borderRadius: navigationLayout.floatingActionSize / 2
-  },
-  floatingShortcutPressMotion: {
-    width: "100%",
-    height: "100%"
-  },
-  floatingShortcutHalo: {
-    position: "absolute",
-    top: -3,
-    right: -3,
-    bottom: -3,
-    left: -3,
-    borderRadius: (navigationLayout.floatingActionSize + 6) / 2,
-    borderWidth: 1
-  },
-  floatingShortcutHaloViolet: {
-    borderColor: "rgba(221,118,241,0.64)",
-    backgroundColor: "rgba(174,48,183,0.08)"
-  },
-  floatingShortcutHaloGold: {
-    borderColor: "rgba(255,191,71,0.7)",
-    backgroundColor: "rgba(222,146,31,0.08)"
+    borderRadius: navigationLayout.floatingActionSize / 2,
+    justifyContent: "center"
   },
   floatingShortcut: {
     width: navigationLayout.floatingActionSize,
@@ -1204,40 +1172,64 @@ const styles = StyleSheet.create({
     elevation: 9,
     overflow: "hidden"
   },
-  floatingShortcutInnerGlow: {
-    position: "absolute",
-    right: -7,
-    bottom: -9,
-    width: navigationLayout.floatingActionSize * 0.82,
-    height: navigationLayout.floatingActionSize * 0.82,
-    borderRadius: navigationLayout.floatingActionSize * 0.41
+  floatingPill: {
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    overflow: "hidden",
+    cursor: "pointer"
   },
-  floatingShortcutInnerGlowViolet: {
-    backgroundColor: "rgba(245,173,255,0.16)"
+  floatingPillViolet: {
+    borderColor: "rgba(208,205,255,0.28)"
   },
-  floatingShortcutInnerGlowGold: {
-    backgroundColor: "rgba(255,201,92,0.19)"
+  floatingPillGold: {
+    borderColor: "rgba(242,217,151,0.3)"
   },
-  floatingShortcutHighlight: {
-    position: "absolute",
-    top: 5,
-    left: 10,
-    right: 10,
-    height: 1,
-    borderRadius: 1,
-    backgroundColor: "rgba(255,255,255,0.44)"
+  floatingPillLabel: {
+    color: "#FFFDF8",
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0,
+    flexShrink: 0
+  },
+  floatingPillHoverWash: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0
+  },
+  floatingPillHoverWashViolet: {
+    backgroundColor: "rgba(230,226,255,0.1)"
+  },
+  floatingPillHoverWashGold: {
+    backgroundColor: "rgba(255,232,171,0.09)"
+  },
+  floatingPillHoverWashVisible: {
+    opacity: 1
+  },
+  floatingPillHovered: {
+    transform: [{ translateY: -1 }]
+  },
+  floatingPillPressed: {
+    opacity: 0.94
   },
   atlasClubShortcut: {
-    shadowColor: v2Colors.brightViolet,
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.31,
-    shadowRadius: 11
+    shadowColor: "#312E81",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2
   },
   premiumShortcut: {
-    shadowColor: "#E6A52F",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.32,
-    shadowRadius: 11
+    shadowColor: "#2B2417",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2
   },
   createPostShortcut: {
     backgroundColor: "rgba(99,102,241,0.82)",

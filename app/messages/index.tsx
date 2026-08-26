@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter, useSegments } from "expo-router";
 import { AppChrome, AdSlot } from "@/components/app-chrome";
@@ -11,6 +11,8 @@ import { useAccount } from "@/hooks/use-account";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
 import { useMessaging } from "@/hooks/use-messaging";
+import { endScrollPerformanceLock, useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
+import { getStandardListPerformanceProps } from "@/constants/list-performance";
 import { ConversationRecord, formatMessageTime } from "@/src/services/firebase/messaging-service";
 import { conversationIdForParticipants } from "@/src/services/firebase/messaging-settings";
 import type { BlockedUserEntry, MessageListTab } from "@/providers/messaging-provider";
@@ -61,6 +63,7 @@ function AuthenticatedMessagesScreen() {
   } = useMessaging();
   const listRef = useRef<FlatList<ConversationRecord>>(null);
   const [unblockingId, setUnblockingId] = useState<string | null>(null);
+  const performanceMode = useRuntimePerformanceMode();
 
   useFocusEffect(
     useCallback(() => {
@@ -108,6 +111,7 @@ function AuthenticatedMessagesScreen() {
         <FlatList
           data={blockedUsers}
           keyExtractor={(item) => item.uid}
+          {...getStandardListPerformanceProps(performanceMode)}
           style={styles.list}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={<Text style={styles.empty}>{copy.blockedEmpty[language]}</Text>}
@@ -136,15 +140,11 @@ function AuthenticatedMessagesScreen() {
           ref={listRef}
           data={visibleConversations}
           keyExtractor={(item) => item.id}
-          initialNumToRender={10}
-          maxToRenderPerBatch={8}
-          updateCellsBatchingPeriod={48}
-          windowSize={5}
-          removeClippedSubviews={Platform.OS === "android"}
+          {...getStandardListPerformanceProps(performanceMode)}
           style={styles.list}
           contentContainerStyle={styles.listContent}
-          onScrollEndDrag={(event) => setListScrollOffset(event.nativeEvent.contentOffset.y)}
-          onMomentumScrollEnd={(event) => setListScrollOffset(event.nativeEvent.contentOffset.y)}
+          onScrollEndDrag={(event) => { endScrollPerformanceLock(); setListScrollOffset(event.nativeEvent.contentOffset.y); }}
+          onMomentumScrollEnd={(event) => { endScrollPerformanceLock(); setListScrollOffset(event.nativeEvent.contentOffset.y); }}
           ListEmptyComponent={<Text style={styles.empty}>{copy.empty[language]}</Text>}
           renderItem={({ item }) => {
             const other = getOtherParticipant(item);

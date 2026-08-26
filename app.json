@@ -2,7 +2,7 @@
   "expo": {
     "name": "Art Atlas",
     "slug": "art-atlas",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "artatlas",
@@ -25,7 +25,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.artatlas.app",
       "usesAppleSignIn": true,
-      "buildNumber": "29",
+      "buildNumber": "30",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -36,7 +36,7 @@
     },
     "android": {
       "package": "com.artatlas.app",
-      "versionCode": 21,
+      "versionCode": 23,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

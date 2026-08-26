@@ -27,7 +27,7 @@ import { commonCopy } from "@/app/i18n/common";
 import { t } from "@/utils/localized-text";
 
 type FeedLanguage = Language | "all";
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 12;
 
 const superLikeModalLabels = {
   title: {

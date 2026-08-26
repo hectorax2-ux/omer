@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -17,6 +17,7 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useCountryCodeLookup } from "@/hooks/use-country-code-lookup";
 import { useLanguage } from "@/hooks/use-language";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 import { buildLuckLeaderboardRows, countUserTodayChanceDraws, getLocalDayKey, luckRankingAverageNote, millisecondsUntilLocalMidnight, normalizeChanceDrawFromApp } from "../firebase/shared/rankings";
 import { listAdminRankingKeys } from "@/src/services/firebase/user-service";
 import { tFormat } from "@/utils/localized-text";
@@ -39,6 +40,7 @@ function AuthenticatedChanceCardScreen() {
   const colors = getThemeColors(theme);
   const styles = useMemo(() => createStyles(colors), [colors]);
   const reducedMotion = useReducedMotion();
+  const chanceSpin = useSeamlessChanceSpin(reducedMotion);
   const router = useRouter();
   const { width } = useWindowDimensions();
   const { account } = useAccount();
@@ -107,14 +109,16 @@ function AuthenticatedChanceCardScreen() {
 
   async function openCardAfterAccess() {
     setOpening(true);
+    chanceSpin.start();
     setMessage("");
     setResultVisible(false);
     const drawPromise = drawChanceCard();
     await Promise.all([
-      animateValue(flip, reducedMotion ? 0 : 72, 400),
-      animateValue(ritual, reducedMotion ? 0.35 : 1, 400)
+      animateValue(ritual, reducedMotion ? 0.35 : 1, 280),
+      new Promise<void>((resolve) => setTimeout(resolve, reducedMotion ? 80 : 720))
     ]);
     const result = await drawPromise;
+    await chanceSpin.finishCycle();
     if (!result.ok) {
       setMessage(result.message);
       await Promise.all([animateValue(flip, 0, 340), animateValue(ritual, 2, 420)]);
@@ -193,6 +197,7 @@ function AuthenticatedChanceCardScreen() {
         reducedMotion={reducedMotion}
         resultVisible={resultVisible}
         ritual={ritual}
+        openingSpin={chanceSpin.value}
         score={displayedScore}
         message={displayedScore ? chanceCardMessage(displayedScore, language) : ""}
       />
@@ -343,7 +348,86 @@ function DailyResetStatus({ available, copy, colors, onReset }: { available: boo
   );
 }
 
-function LuckCardStage({ cardWidth, colors, copy, cardFace, flip, reducedMotion, resultVisible, ritual, score, message }: {
+function useSeamlessChanceSpin(reducedMotion: boolean) {
+  const value = useRef(new Animated.Value(0)).current;
+  const activeRef = useRef(false);
+  const stopAtCycleEndRef = useRef(false);
+  const cycleRef = useRef<() => void>(() => undefined);
+  const settlementPromiseRef = useRef<Promise<void> | null>(null);
+  const settlementResolverRef = useRef<(() => void) | null>(null);
+
+  cycleRef.current = () => {
+    if (!activeRef.current) return;
+    value.setValue(0);
+    Animated.timing(value, {
+      toValue: 1,
+      duration: 820,
+      easing: Easing.linear,
+      useNativeDriver: true
+    }).start(({ finished }) => {
+      if (!finished || !activeRef.current) {
+        const resolve = settlementResolverRef.current;
+        settlementResolverRef.current = null;
+        settlementPromiseRef.current = null;
+        resolve?.();
+        return;
+      }
+      if (stopAtCycleEndRef.current) {
+        activeRef.current = false;
+        stopAtCycleEndRef.current = false;
+        value.setValue(0);
+        const resolve = settlementResolverRef.current;
+        settlementResolverRef.current = null;
+        settlementPromiseRef.current = null;
+        resolve?.();
+        return;
+      }
+      cycleRef.current();
+    });
+  };
+
+  const start = useCallback(() => {
+    value.stopAnimation();
+    const resolve = settlementResolverRef.current;
+    settlementResolverRef.current = null;
+    settlementPromiseRef.current = null;
+    resolve?.();
+    value.setValue(0);
+    stopAtCycleEndRef.current = false;
+    if (reducedMotion) {
+      activeRef.current = false;
+      return;
+    }
+    activeRef.current = true;
+    cycleRef.current();
+  }, [reducedMotion, value]);
+
+  const finishCycle = useCallback(() => {
+    if (reducedMotion || !activeRef.current) {
+      value.setValue(0);
+      return Promise.resolve();
+    }
+    stopAtCycleEndRef.current = true;
+    if (settlementPromiseRef.current) return settlementPromiseRef.current;
+    settlementPromiseRef.current = new Promise<void>((resolve) => {
+      settlementResolverRef.current = resolve;
+    });
+    return settlementPromiseRef.current;
+  }, [reducedMotion, value]);
+
+  useEffect(() => () => {
+    activeRef.current = false;
+    value.stopAnimation();
+    const resolve = settlementResolverRef.current;
+    settlementResolverRef.current = null;
+    settlementPromiseRef.current = null;
+    resolve?.();
+  }, [value]);
+
+  return { value, start, finishCycle };
+}
+
+function LuckCardStage({ cardWidth, colors, copy, cardFace, flip, reducedMotion, resultVisible, ritual, openingSpin, score, message }: {
   cardWidth: number;
   colors: ThemeColors;
   copy: ChanceCopy;
@@ -352,6 +436,7 @@ function LuckCardStage({ cardWidth, colors, copy, cardFace, flip, reducedMotion,
   reducedMotion: boolean;
   resultVisible: boolean;
   ritual: Animated.Value;
+  openingSpin: Animated.Value;
   score?: number;
   message: string;
 }) {
@@ -363,9 +448,17 @@ function LuckCardStage({ cardWidth, colors, copy, cardFace, flip, reducedMotion,
   const shine = useRef(new Animated.Value(0)).current;
   const cardHeight = cardWidth / 0.66;
   const atmosphere = scoreAtmosphere(score, colors);
+  const performanceMode = useRuntimePerformanceMode();
+  const lightweightAmbient = reducedMotion || performanceMode !== "full";
 
   useEffect(() => {
-    if (reducedMotion) return;
+    if (lightweightAmbient) {
+      float.stopAnimation();
+      orbit.stopAnimation();
+      float.setValue(0);
+      orbit.setValue(0);
+      return undefined;
+    }
     const floatLoop = Animated.loop(Animated.sequence([
       Animated.timing(float, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       Animated.timing(float, { toValue: 0, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true })
@@ -377,7 +470,7 @@ function LuckCardStage({ cardWidth, colors, copy, cardFace, flip, reducedMotion,
       floatLoop.stop();
       orbitLoop.stop();
     };
-  }, [float, orbit, reducedMotion]);
+  }, [float, lightweightAmbient, orbit]);
 
   useEffect(() => {
     if (!resultVisible) {
@@ -406,13 +499,16 @@ function LuckCardStage({ cardWidth, colors, copy, cardFace, flip, reducedMotion,
   const tiltTransform = reducedMotion ? "0deg" : float.interpolate({ inputRange: [0, 1], outputRange: ["-0.7deg", "0.7deg"] });
   const orbitTransform = reducedMotion ? "-8deg" : orbit.interpolate({ inputRange: [0, 1], outputRange: ["-8deg", "352deg"] });
   const cardRotation = reducedMotion ? "0deg" : flip.interpolate({ inputRange: [-90, 0, 90], outputRange: ["-90deg", "0deg", "90deg"] });
+  const openingSpinRotation = reducedMotion ? "0deg" : openingSpin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
   const ritualLift = ritual.interpolate({ inputRange: [0, 1, 2], outputRange: [0, -13, 0] });
-  const ritualScale = ritual.interpolate({ inputRange: [0, 1, 2], outputRange: [1, 1.065, 1] });
+  const ritualScale = ritual.interpolate({ inputRange: [0, 1, 2], outputRange: [1, 1.04, 1] });
   const orbitScale = reducedMotion ? 1 : ritual.interpolate({ inputRange: [0, 1, 2], outputRange: [1, 0.78, 1] });
   const orbitBurst = reducedMotion ? "0deg" : ritual.interpolate({ inputRange: [0, 1, 2], outputRange: ["0deg", "145deg", "360deg"] });
   const orbitCounterBurst = reducedMotion ? "0deg" : ritual.interpolate({ inputRange: [0, 1, 2], outputRange: ["0deg", "-110deg", "-360deg"] });
   const glowScale = ritual.interpolate({ inputRange: [0, 1, 2], outputRange: [0.88, 1.18, 0.88] });
   const glowOpacity = ritual.interpolate({ inputRange: [0, 1, 2], outputRange: [0.62, 1, 0.62] });
+  const pedestalOpacity = reducedMotion ? 0.72 : openingSpin.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.62, 0.82, 0.62] });
+  const pedestalScale = reducedMotion ? 1 : openingSpin.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.96, 1.035, 0.96] });
   const resultScale = reveal.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] });
   const accessibilityLabel = resultVisible && score ? copy.cardScoreAccessibility.replace("{score}", String(score)) : copy.cardReadyAccessibility;
 
@@ -428,7 +524,8 @@ function LuckCardStage({ cardWidth, colors, copy, cardFace, flip, reducedMotion,
       <Animated.View style={{ transform: [{ translateY: floatTransform }, { translateY: ritualLift }, { scale: ritualScale }, { rotateZ: tiltTransform }] }}>
         <View style={[styles.cardShadow, { width: cardWidth * 0.78 }]} />
         <View style={{ width: cardWidth, height: cardHeight }} accessible accessibilityLabel={accessibilityLabel}>
-          <Animated.View style={[styles.cardFace, { width: cardWidth, height: cardHeight, transform: [{ perspective: 900 }, { rotateY: cardRotation }] }]}>
+          <Animated.View style={{ width: cardWidth, height: cardHeight, transform: [{ perspective: 900 }, { rotateY: openingSpinRotation }] }}>
+          <Animated.View style={[styles.cardFace, lightweightAmbient && styles.cardFaceLightweight, { width: cardWidth, height: cardHeight, transform: [{ perspective: 900 }, { rotateY: cardRotation }] }]}>
             <LinearGradient colors={cardFace === "back" ? [colors.navy, colors.panel, colors.ink] : [colors.navy, atmosphere.surface, colors.ink]} style={styles.cardGradient}>
               <View style={[styles.cardOuterFrame, { borderColor: cardFace === "back" ? colors.gold : atmosphere.accent }]} /><View style={styles.cardInnerFrame} />
               {cardFace === "back" ? (
@@ -452,9 +549,10 @@ function LuckCardStage({ cardWidth, colors, copy, cardFace, flip, reducedMotion,
               <View style={styles.cardHighlight} />
             </LinearGradient>
           </Animated.View>
+          </Animated.View>
         </View>
       </Animated.View>
-      <View style={styles.pedestal}><View style={styles.pedestalOuter} /><View style={styles.pedestalInner} /><View style={[styles.pedestalCore, { backgroundColor: atmosphere.glow }]} /></View>
+      <Animated.View style={[styles.pedestal, { opacity: pedestalOpacity, transform: [{ scaleX: pedestalScale }] }]}><View style={styles.pedestalOuter} /><View style={styles.pedestalInner} /><View style={[styles.pedestalCore, { backgroundColor: atmosphere.glow }]} /></Animated.View>
     </View>
   );
 }
@@ -529,6 +627,7 @@ function createStyles(colors: ThemeColors) {
     prestigeParticle: { position: "absolute", width: 5, height: 5, borderRadius: 5, backgroundColor: colors.gold, zIndex: 8 },
     cardShadow: { position: "absolute", height: 22, borderRadius: 100, backgroundColor: "rgba(0,0,0,0.44)", left: "11%", bottom: -28, transform: [{ scaleY: 0.42 }] },
     cardFace: { position: "absolute", borderRadius: 17, overflow: "hidden", backfaceVisibility: "hidden", shadowColor: "#000", shadowOpacity: 0.46, shadowRadius: 18, shadowOffset: { width: 0, height: 13 }, elevation: 12 },
+    cardFaceLightweight: { shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
     cardGradient: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 17, paddingVertical: 17 },
     cardOuterFrame: { position: "absolute", top: 7, right: 7, bottom: 7, left: 7, borderRadius: 13, borderWidth: 1.3, opacity: 0.78 },
     cardInnerFrame: { position: "absolute", top: 12, right: 12, bottom: 12, left: 12, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { InteractionManager, LayoutChangeEvent, StyleSheet, Text, View } from "react-native";
+import { InteractionManager, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import { AppChrome, type AppChromeScrollRequest } from "@/components/app-chrome";
+import { useRouter } from "expo-router";
+import { AppChrome } from "@/components/app-chrome";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { Reveal } from "@/components/ui/reveal";
 import { ThemePickerModal, getThemePickerLabel } from "@/components/theme-picker-modal";
@@ -27,7 +27,6 @@ import { JourneyPreview } from "./components/journey-preview";
 import { FollowingActivity, SuggestedProfiles } from "./components/social-sections";
 import { useHomeExperience } from "./use-home-experience";
 import type { JourneyStageView } from "./types";
-import { consumeAtlasClubHomeScroll } from "@/utils/atlas-club-navigation";
 import { prepareTimelineGameQueue } from "@/src/services/firebase/timeline-game-service";
 import { prefetchImageUrls } from "@/utils/image-prefetch";
 import { markPerformanceEvent } from "@/utils/performance";
@@ -42,12 +41,7 @@ export default function HomeExperienceScreen() {
   const home = useHomeExperience();
   const startupPhase = useStartupPhase();
   const [themePickerOpen, setThemePickerOpen] = useState(false);
-  const [scrollRequest, setScrollRequest] = useState<AppChromeScrollRequest | null>(null);
-  const gamesSectionRef = useRef<View>(null);
-  const gamesSectionLayoutReadyRef = useRef(false);
-  const pendingAtlasClubScrollRef = useRef(false);
-  const gamesScrollFrameRef = useRef<number | null>(null);
-  const scrollRequestIdRef = useRef(0);
+  const [heroVisible, setHeroVisible] = useState(true);
   const firstRenderMarkedRef = useRef(false);
   const dataReadyMarkedRef = useRef(false);
   if (!firstRenderMarkedRef.current) {
@@ -126,173 +120,52 @@ export default function HomeExperienceScreen() {
     router.push({ pathname: "/story/[id]", params: { id } });
   }
 
-  const scrollToGamesSection = useCallback(() => {
-    if (!gamesSectionLayoutReadyRef.current || !gamesSectionRef.current || !home.isInitialReady) {
-      pendingAtlasClubScrollRef.current = true;
-      return;
-    }
-    pendingAtlasClubScrollRef.current = false;
-    scrollRequestIdRef.current += 1;
-    setScrollRequest({ id: scrollRequestIdRef.current, targetRef: gamesSectionRef });
-  }, [home.isInitialReady]);
-
-  const scheduleGamesSectionScroll = useCallback(() => {
-    if (gamesScrollFrameRef.current !== null) cancelAnimationFrame(gamesScrollFrameRef.current);
-    gamesScrollFrameRef.current = requestAnimationFrame(() => {
-      gamesScrollFrameRef.current = requestAnimationFrame(() => {
-        gamesScrollFrameRef.current = null;
-        scrollToGamesSection();
-      });
-    });
-  }, [scrollToGamesSection]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!consumeAtlasClubHomeScroll()) return undefined;
-      pendingAtlasClubScrollRef.current = true;
-      scheduleGamesSectionScroll();
-      return undefined;
-    }, [scheduleGamesSectionScroll])
-  );
-
-  useEffect(() => {
-    if (!home.isInitialReady || !pendingAtlasClubScrollRef.current) return undefined;
-    scheduleGamesSectionScroll();
-    return undefined;
-  }, [home.isInitialReady, scheduleGamesSectionScroll]);
-
-  useEffect(() => () => {
-    if (gamesScrollFrameRef.current !== null) cancelAnimationFrame(gamesScrollFrameRef.current);
+  const handleViewableHomeItems = useCallback((keys: string[]) => {
+    const next = keys.includes("hero");
+    setHeroVisible((current) => current === next ? current : next);
   }, []);
 
-  function captureGamesSectionLayout(event: LayoutChangeEvent) {
-    gamesSectionLayoutReadyRef.current = event.nativeEvent.layout.height > 0;
-    if (!pendingAtlasClubScrollRef.current) return;
-    scheduleGamesSectionScroll();
-  }
+  const homeItems = [
+    { key: "hero", content: <Reveal><DynamicHero motionActive={heroVisible} theme={theme} items={home.feed.hero} greetingKey={home.feed.greetingKey} displayName={home.isAuthenticated ? home.account.displayName : "Art Atlas"} premium={home.isAuthenticated && home.account.isPremium} onOpen={openArtwork} /></Reveal> },
+    { key: "journey", content: <Reveal delay={45}><JourneyPreview theme={theme} journey={home.journey} stages={home.journeyExperience.stages} progress={home.journeyExperience.progress} previewCount={home.runtimeConfig.config.journeyPreviewCount} isAuthenticated={home.isAuthenticated} onOpenJourney={() => router.push("/journey")} onOpenStage={openStage} /></Reveal> },
+    {
+      key: "quick-discovery",
+      content: <Reveal delay={70}>
+        <View style={styles.themeRow}>
+          <View style={styles.themeCopy}><Text style={styles.themeEyebrow}>ART ATLAS</Text><Text style={styles.themeTitle}>{t(homeCopy.quickDiscovery, language)}</Text></View>
+          <PressableScale onPress={() => setThemePickerOpen(true)} wrapStyle={styles.themeButtonWrap} style={styles.themeButton} accessibilityLabel={activeThemeLabel}><Ionicons name={themeIcon(theme)} size={17} color={v2Colors.cyan} /><Text style={styles.themeButtonText} numberOfLines={2}>{activeThemeLabel}</Text></PressableScale>
+        </View>
+        <QuickDiscovery theme={theme} title="" items={quickActions} accent={v2Colors.cyan} />
+      </Reveal>
+    },
+    { key: "for-you", content: <Reveal delay={85}><ArtworkRail theme={theme} title={t(homeCopy.forYou, language)} curatorLabel={t(homeCopy.curatorSelection, language)} curator items={home.feed.recommendations} actionLabel={t(homeCopy.seeAll, language)} onAction={() => router.push("/(tabs)/gallery")} onOpen={openArtwork} /></Reveal> },
+    {
+      key: "daily-challenge",
+      content: <Reveal delay={95}><DailyChallengeCard theme={theme} challenge={home.feed.dailyChallenge} onPress={() => {
+        if (home.feed.dailyChallenge.route === "/timeline-game") {
+          router.push({ pathname: "/timeline-game", params: home.feed.dailyChallenge.params });
+          return;
+        }
+        router.push("/games");
+      }} /></Reveal>
+    },
+    { key: "games", content: <Reveal delay={105}><QuickDiscovery theme={theme} title={t(homeCopy.challengesGames, language)} items={gameActions} accent={v2Colors.pink} variant="games" /></Reveal> },
+    { key: "editorial", content: <Reveal delay={115}><DailyEditorial theme={theme} artist={home.feed.dailyArtist} story={home.feed.dailyStory} onArtist={openArtist} onStory={openStory} /></Reveal> },
+    { key: "popular", content: <Reveal delay={125}><ArtworkRail theme={theme} title={t(homeCopy.popularNew, language)} items={home.feed.popular} actionLabel={t(homeCopy.seeAll, language)} onAction={() => router.push("/(tabs)/gallery")} onOpen={openArtwork} /></Reveal> },
+    { key: "achievements", content: <Reveal delay={135}><AchievementStrip theme={theme} values={[
+      { id: "museum", icon: "albums", value: home.museumArtworkIds.length, label: t(homeCopy.museumCount, language) },
+      { id: "read", icon: "eye", value: home.readArtworkIds.length, label: t(homeCopy.readCount, language) },
+      { id: "score", icon: "trophy", value: home.account.totalScore, label: t(homeCopy.scoreCount, language) },
+      { id: "journey", icon: "trail-sign", value: home.journeyExperience.progress.completedStageIds.length, label: t(homeCopy.journeyCount, language) },
+      { id: "seer", icon: "sparkles", value: home.seerPoints, label: currentSeerLabel }
+    ]} /></Reveal> },
+    { key: "following", content: <Reveal delay={145}><FollowingActivity theme={theme} artworks={home.followingArtworks} posts={home.followingPosts} /></Reveal> },
+    { key: "profiles", content: <Reveal delay={155}><SuggestedProfiles theme={theme} users={home.suggestedUsers} /></Reveal> }
+  ];
 
   return (
     <>
-      <AppChrome
-        title="Art Atlas"
-        showTopAd={false}
-        scrollRequest={scrollRequest}
-        onAtlasClubPress={scrollToGamesSection}
-      >
-        <Reveal>
-          <DynamicHero
-            theme={theme}
-            items={home.feed.hero}
-            greetingKey={home.feed.greetingKey}
-            displayName={home.isAuthenticated ? home.account.displayName : "Art Atlas"}
-            premium={home.isAuthenticated && home.account.isPremium}
-            onOpen={openArtwork}
-          />
-        </Reveal>
-
-        <Reveal delay={45}>
-          <JourneyPreview
-            theme={theme}
-            journey={home.journey}
-            stages={home.journeyExperience.stages}
-            progress={home.journeyExperience.progress}
-            previewCount={home.runtimeConfig.config.journeyPreviewCount}
-            isAuthenticated={home.isAuthenticated}
-            onOpenJourney={() => router.push("/journey")}
-            onOpenStage={openStage}
-          />
-        </Reveal>
-
-        <Reveal delay={70}>
-          <View style={styles.themeRow}>
-            <View style={styles.themeCopy}>
-              <Text style={styles.themeEyebrow}>ART ATLAS</Text>
-              <Text style={styles.themeTitle}>{t(homeCopy.quickDiscovery, language)}</Text>
-            </View>
-            <PressableScale onPress={() => setThemePickerOpen(true)} wrapStyle={styles.themeButtonWrap} style={styles.themeButton} accessibilityLabel={activeThemeLabel}>
-              <Ionicons name={themeIcon(theme)} size={17} color={v2Colors.cyan} />
-              <Text style={styles.themeButtonText} numberOfLines={2}>{activeThemeLabel}</Text>
-            </PressableScale>
-          </View>
-          <QuickDiscovery theme={theme} title="" items={quickActions} accent={v2Colors.cyan} />
-        </Reveal>
-
-        <Reveal delay={85}>
-          <ArtworkRail
-            theme={theme}
-            title={t(homeCopy.forYou, language)}
-            curatorLabel={t(homeCopy.curatorSelection, language)}
-            curator
-            items={home.feed.recommendations}
-            actionLabel={t(homeCopy.seeAll, language)}
-            onAction={() => router.push("/(tabs)/gallery")}
-            onOpen={openArtwork}
-          />
-        </Reveal>
-
-        <Reveal delay={95}>
-          <DailyChallengeCard
-            theme={theme}
-            challenge={home.feed.dailyChallenge}
-            onPress={() => {
-              if (home.feed.dailyChallenge.route === "/timeline-game") {
-                router.push({ pathname: "/timeline-game", params: home.feed.dailyChallenge.params });
-                return;
-              }
-              router.push("/games");
-            }}
-          />
-        </Reveal>
-
-        <Reveal delay={105}>
-          <QuickDiscovery theme={theme} title={t(homeCopy.challengesGames, language)} items={gameActions} accent={v2Colors.pink} variant="games" onLayout={captureGamesSectionLayout} sectionRef={gamesSectionRef} />
-        </Reveal>
-
-        <Reveal delay={115}>
-          <DailyEditorial
-            theme={theme}
-            artist={home.feed.dailyArtist}
-            story={home.feed.dailyStory}
-            onArtist={openArtist}
-            onStory={openStory}
-          />
-        </Reveal>
-
-        <Reveal delay={125}>
-          <ArtworkRail
-            theme={theme}
-            title={t(homeCopy.popularNew, language)}
-            items={home.feed.popular}
-            actionLabel={t(homeCopy.seeAll, language)}
-            onAction={() => router.push("/(tabs)/gallery")}
-            onOpen={openArtwork}
-          />
-        </Reveal>
-
-        <Reveal delay={135}>
-          <AchievementStrip
-            theme={theme}
-            values={[
-              { id: "museum", icon: "albums", value: home.museumArtworkIds.length, label: t(homeCopy.museumCount, language) },
-              { id: "read", icon: "eye", value: home.readArtworkIds.length, label: t(homeCopy.readCount, language) },
-              { id: "score", icon: "trophy", value: home.account.totalScore, label: t(homeCopy.scoreCount, language) },
-              { id: "journey", icon: "trail-sign", value: home.journeyExperience.progress.completedStageIds.length, label: t(homeCopy.journeyCount, language) },
-              { id: "seer", icon: "sparkles", value: home.seerPoints, label: currentSeerLabel }
-            ]}
-          />
-        </Reveal>
-
-        <Reveal delay={145}>
-          <FollowingActivity theme={theme} artworks={home.followingArtworks} posts={home.followingPosts} />
-        </Reveal>
-
-        <Reveal delay={155}>
-          <SuggestedProfiles
-            theme={theme}
-            users={home.suggestedUsers}
-          />
-        </Reveal>
-      </AppChrome>
+      <AppChrome title="Art Atlas" showTopAd={false} virtualizedItems={homeItems} virtualizedInitialNumToRender={6} onVirtualizedViewableItemsChanged={handleViewableHomeItems} />
       <ThemePickerModal visible={themePickerOpen} onClose={() => setThemePickerOpen(false)} />
     </>
   );

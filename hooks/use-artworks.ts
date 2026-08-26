@@ -5,7 +5,7 @@ import type { ArtworkDocument, LocalizedString } from "@/src/types/firestore";
 import { getArtworkDocument, listPublishedArtworks } from "@/src/services/firebase/artwork-service";
 import { useRegisterRefresh } from "@/providers/refresh-provider";
 import { isResourceArray, loadResourceCache, peekLargestResourceArray, peekResourceCache, refreshResourceCache } from "@/src/services/cache/resource-cache";
-import { markPerformanceEvent, startPerformanceSpan } from "@/utils/performance";
+import { markPerformanceEvent, runAfterInteractions, startPerformanceSpan } from "@/utils/performance";
 import { parseImageFocus } from "@/firebase/shared/image-focus";
 import { artworks as bundledArtworks } from "@/data/content";
 
@@ -89,7 +89,7 @@ export function useArtworks(maxResults = 100, enabled = true) {
       try {
         const next = await refreshResourceCache(cacheKey, async () => {
           const documents = await listPublishedArtworks(maxResults);
-          return [...documents]
+          return runAfterInteractions(() => [...documents]
             .sort((a, b) => {
               const pinnedDelta = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
               if (pinnedDelta) return pinnedDelta;
@@ -97,7 +97,7 @@ export function useArtworks(maxResults = 100, enabled = true) {
               const aTime = a.publishedAt?.toMillis?.() ?? a.createdAt?.toMillis?.() ?? 0;
               return bTime - aTime;
             })
-            .map(mapArtworkDocument);
+            .map(mapArtworkDocument));
         }, refreshCounter > 0);
         if (!mounted) return;
         setRemoteArtworks(next.length ? next : bundledArtworks.slice(0, maxResults));

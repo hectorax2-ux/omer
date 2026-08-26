@@ -266,6 +266,13 @@ export const homeCopy = {
   challengesGames: { tr: "Yarışmalar ve oyunlar", en: "Challenges & games", ru: "Конкурсы и игры", uz: "Tanlovlar va o'yinlar" },
   atlasClub: { tr: "Atlas Club", en: "Atlas Club", ru: "Atlas Club", uz: "Atlas Club" },
   atlasClubHint: { tr: "Yarışmalar ve oyunları keşfet", en: "Explore competitions and games", ru: "Открыть конкурсы и игры", uz: "Tanlovlar va o'yinlarni kashf et" },
+  atlasClubTagline: { tr: "Sanatın oyun alanı", en: "Where art comes to play", ru: "Игровое пространство искусства", uz: "San'atning o'yin maydoni" },
+  atlasClubDescription: {
+    tr: "Yarışmalara katıl, sanat oyunlarını keşfet ve Atlas sıralamalarında yerini al.",
+    en: "Join competitions, explore art games, and find your place in the Atlas rankings.",
+    ru: "Участвуйте в конкурсах, открывайте игры об искусстве и занимайте место в рейтингах Atlas.",
+    uz: "Tanlovlarda qatnashing, san'at o'yinlarini kashf eting va Atlas reytingida o'rningizni toping."
+  },
   following: { tr: "Takip ettiklerim", en: "Following", ru: "Мои подписки", uz: "Kuzatayotganlarim" },
   followingEmpty: {
     tr: "Takip ettiklerinden yeni içerik yok. Keşfet bölümünden yeni profiller bulabilirsin.",

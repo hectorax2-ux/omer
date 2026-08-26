@@ -19,9 +19,11 @@ import { getUserDocument } from "@/src/services/firebase/user-service";
 import { isPremiumDataActive } from "@/utils/premium-status";
 import { isResourceArray, loadResourceCache, peekResourceCache, saveResourceCache } from "@/src/services/cache/resource-cache";
 import { markPerformanceEvent } from "@/utils/performance";
+import { getStandardListPerformanceProps } from "@/constants/list-performance";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 
-const INITIAL_MESSAGE_LIMIT = 30;
-const MESSAGE_PAGE_SIZE = 30;
+const INITIAL_MESSAGE_LIMIT = 18;
+const MESSAGE_PAGE_SIZE = 24;
 
 const deleteConfirmCopy = {
   title: {
@@ -74,6 +76,7 @@ function AuthenticatedConversationScreen() {
   const colors = getThemeColors(theme);
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const performanceMode = useRuntimePerformanceMode();
   const { account } = useAccount();
   const {
     conversations,
@@ -422,10 +425,10 @@ function AuthenticatedConversationScreen() {
         onEndReached={loadOlderMessages}
         onEndReachedThreshold={0.4}
         showsVerticalScrollIndicator={false}
-        initialNumToRender={INITIAL_MESSAGE_LIMIT}
-        maxToRenderPerBatch={MESSAGE_PAGE_SIZE}
-        windowSize={11}
-        removeClippedSubviews
+        {...getStandardListPerformanceProps(performanceMode)}
+        initialNumToRender={performanceMode === "reduced" ? 8 : 12}
+        maxToRenderPerBatch={performanceMode === "reduced" ? 4 : 8}
+        windowSize={performanceMode === "reduced" ? 4 : 7}
         ListFooterComponent={!reachedStart && initialLoaded && displayMessages.length >= INITIAL_MESSAGE_LIMIT ? (
           <View style={styles.olderLoader}>
             <ActivityIndicator color={colors.muted} size="small" />

@@ -5,7 +5,7 @@ import type { ArtistDocument, LocalizedString } from "@/src/types/firestore";
 import { getArtistDocument, listPublishedArtists } from "@/src/services/firebase/artist-service";
 import { useRegisterRefresh } from "@/providers/refresh-provider";
 import { isResourceArray, loadResourceCache, peekLargestResourceArray, peekResourceCache, refreshResourceCache } from "@/src/services/cache/resource-cache";
-import { markPerformanceEvent, startPerformanceSpan } from "@/utils/performance";
+import { markPerformanceEvent, runAfterInteractions, startPerformanceSpan } from "@/utils/performance";
 import { parseImageFocus } from "@/firebase/shared/image-focus";
 import { artists as bundledArtists } from "@/data/content";
 
@@ -80,13 +80,13 @@ export function useArtists(maxResults = 100) {
       try {
         const next = await refreshResourceCache(cacheKey, async () => {
           const documents = await listPublishedArtists(maxResults);
-          return [...documents]
+          return runAfterInteractions(() => [...documents]
             .sort((a, b) => {
               const pinnedDelta = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
               if (pinnedDelta) return pinnedDelta;
               return (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0);
             })
-            .map(mapArtistDocument);
+            .map(mapArtistDocument));
         }, refreshCounter > 0);
         if (!mounted) return;
         setRemoteArtists(next.length ? next : bundledArtists.slice(0, maxResults));

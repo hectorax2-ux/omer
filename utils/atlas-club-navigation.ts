@@ -24,8 +24,6 @@ type ShortcutVisibilityOptions = {
   keyboardFocused?: boolean;
 };
 
-let pendingHomeScroll = false;
-
 export function getAppShortcutVisibility(pathname: string, options: ShortcutVisibilityOptions = {}) {
   const normalizedPathname = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
   const profileScreen = normalizedPathname.startsWith("/profile/");
@@ -38,14 +36,4 @@ export function getAppShortcutVisibility(pathname: string, options: ShortcutVisi
 
 export function shouldShowAtlasClub(pathname: string) {
   return getAppShortcutVisibility(pathname).showAtlasClub;
-}
-
-export function requestAtlasClubHomeScroll() {
-  pendingHomeScroll = true;
-}
-
-export function consumeAtlasClubHomeScroll() {
-  if (!pendingHomeScroll) return false;
-  pendingHomeScroll = false;
-  return true;
 }

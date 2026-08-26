@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
@@ -11,6 +10,7 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
 import { useMessageBadgeCount } from "@/components/messages-tab-icon";
 import { beginPerformanceMarker, markPerformanceEvent } from "@/utils/performance";
+import { beginNavigationPerformanceLock } from "@/hooks/use-runtime-performance-mode";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -24,7 +24,13 @@ const routeIcons: Record<string, IconName> = {
   account: "person-circle"
 };
 
-export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+type FloatingTabBarProps = BottomTabBarProps & {
+  onTransitionStart?: (routeKey: string, label: string) => void;
+  onTransitionReady?: (routeKey: string) => void;
+  onTransitionCancel?: (routeKey: string) => void;
+};
+
+export function FloatingTabBar({ state, descriptors, navigation, onTransitionStart, onTransitionReady, onTransitionCancel }: FloatingTabBarProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
   const { language } = useLanguage();
@@ -34,26 +40,43 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
   const activeTone = "#ffffff";
   const [optimisticRouteKey, setOptimisticRouteKey] = useState<string | null>(null);
   const optimisticResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestPressRouteKeyRef = useRef<string | null>(null);
 
   const tabs = state.routes.filter((route) => visibleRoutes.has(route.name));
   const activeRouteKey = state.routes[state.index]?.key;
 
   useEffect(() => {
     if (optimisticRouteKey !== activeRouteKey) return;
+    onTransitionReady?.(activeRouteKey);
     setOptimisticRouteKey(null);
+    latestPressRouteKeyRef.current = null;
     if (optimisticResetRef.current) clearTimeout(optimisticResetRef.current);
     optimisticResetRef.current = null;
-  }, [activeRouteKey, optimisticRouteKey]);
+  }, [activeRouteKey, onTransitionReady, optimisticRouteKey]);
 
   useEffect(() => () => {
     if (optimisticResetRef.current) clearTimeout(optimisticResetRef.current);
   }, []);
 
-  function showImmediateSelection(routeKey: string) {
-    if (routeKey === activeRouteKey) return;
+  function showImmediateSelection(routeKey: string, label: string) {
+    if (routeKey === activeRouteKey) {
+      const pendingRouteKey = latestPressRouteKeyRef.current;
+      if (optimisticResetRef.current) clearTimeout(optimisticResetRef.current);
+      optimisticResetRef.current = null;
+      latestPressRouteKeyRef.current = null;
+      setOptimisticRouteKey(null);
+      if (pendingRouteKey) onTransitionCancel?.(pendingRouteKey);
+      return;
+    }
     if (optimisticResetRef.current) clearTimeout(optimisticResetRef.current);
+    latestPressRouteKeyRef.current = routeKey;
     setOptimisticRouteKey(routeKey);
-    optimisticResetRef.current = setTimeout(() => setOptimisticRouteKey(null), 1200);
+    onTransitionStart?.(routeKey, label);
+    optimisticResetRef.current = setTimeout(() => {
+      setOptimisticRouteKey(null);
+      onTransitionCancel?.(routeKey);
+      if (latestPressRouteKeyRef.current === routeKey) latestPressRouteKeyRef.current = null;
+    }, 4000);
   }
 
   const tabItems = tabs.map((route) => {
@@ -62,13 +85,17 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
     const selected = optimisticRouteKey ? optimisticRouteKey === route.key : focused;
     const icon = routeIcons[route.name] ?? "ellipse";
     const label = descriptors[route.key].options.title ?? route.name;
+    const compactLabel = shortLabel(String(label), route.name, language);
 
     function onPress() {
+      if (latestPressRouteKeyRef.current && latestPressRouteKeyRef.current !== route.key) return;
       beginPerformanceMarker("NAV_TAP", { route: route.name });
       markPerformanceEvent("NAV_TOUCH_RECEIVED", { route: route.name });
       const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
       if (event.defaultPrevented) {
         setOptimisticRouteKey(null);
+        latestPressRouteKeyRef.current = null;
+        onTransitionCancel?.(route.key);
         return;
       }
       if (focused) return;
@@ -78,7 +105,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
     }
 
     return (
-      <Pressable accessibilityRole="tab" accessibilityLabel={shortLabel(String(label), route.name, language)} accessibilityState={{ selected }} key={route.key} onPressIn={() => showImmediateSelection(route.key)} onPress={onPress} style={styles.tab}>
+      <Pressable accessibilityRole="tab" accessibilityLabel={compactLabel} accessibilityState={{ selected }} key={route.key} onPressIn={() => { beginNavigationPerformanceLock(); showImmediateSelection(route.key, compactLabel); }} onPress={onPress} style={styles.tab}>
         {selected ? <LinearGradient colors={[v2Colors.primary, v2Colors.violet]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.activePill} /> : null}
         <View style={styles.tabInner}>
           <View style={styles.iconWrap}>
@@ -94,7 +121,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
             ) : null}
           </View>
           <Text style={[styles.label, selected && styles.activeLabel]} numberOfLines={1}>
-            {shortLabel(String(label), route.name, language)}
+            {compactLabel}
           </Text>
         </View>
       </Pressable>
@@ -103,11 +130,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
 
   return (
     <View style={[styles.outer, { paddingBottom: Math.max(insets.bottom, navigationLayout.minimumBottomInset) }]}>
-      {Platform.OS === "android" ? (
-        <View style={styles.pill}>{tabItems}</View>
-      ) : (
-        <BlurView intensity={isBrightTheme(theme) ? 48 : 36} tint={isBrightTheme(theme) ? "light" : "dark"} style={styles.pill}>{tabItems}</BlurView>
-      )}
+      <View style={styles.pill}>{tabItems}</View>
     </View>
   );
 }
@@ -151,9 +174,9 @@ function createStyles(theme: AppTheme, colors: ReturnType<typeof getThemeColors>
       paddingVertical: 6,
       shadowColor: "#000000",
       shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.35,
-      shadowRadius: 16,
-      elevation: 12
+      shadowOpacity: Platform.OS === "android" ? 0.16 : 0.35,
+      shadowRadius: Platform.OS === "android" ? 5 : 16,
+      elevation: Platform.OS === "android" ? 5 : 12
     },
     tab: {
       flex: 1,

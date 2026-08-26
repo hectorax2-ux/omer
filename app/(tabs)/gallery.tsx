@@ -1,9 +1,10 @@
-import { memo, useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { AppChrome } from "@/components/app-chrome";
+import { TabScreenMountGate } from "@/components/tab-screen-mount-gate";
 import { CoverImage } from "@/components/cover-image";
 import { elevation, hexAlpha, radii, v2Colors } from "@/constants/design";
 import { getThemeColors, type AppTheme } from "@/constants/theme";
@@ -15,6 +16,8 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEngagement } from "@/hooks/use-engagement";
 import { useLanguage } from "@/hooks/use-language";
 import type { Artwork, Language } from "@/types/content";
+import { getArtworkGridPerformanceProps } from "@/constants/list-performance";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 import {
   filterArtworksForGallery,
   type GalleryMode,
@@ -63,6 +66,11 @@ const sortLabels: Record<GallerySort, Record<Language, string>> = {
 const sortOptions = Object.keys(sortLabels) as GallerySort[];
 
 export default function GalleryScreen() {
+  const { language } = useLanguage();
+  return <TabScreenMountGate title={copy.gallery[language]}><GalleryContent /></TabScreenMountGate>;
+}
+
+function GalleryContent() {
   const isFocused = useIsFocused();
   const { language } = useLanguage();
   const { theme } = useAppTheme();
@@ -72,6 +80,7 @@ export default function GalleryScreen() {
   const { favoriteArtworkIds, readArtworkIds, artworkVotes, resetReadArtworks } = useEngagement();
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const performanceMode = useRuntimePerformanceMode();
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<GalleryMode>("new");
   const [statusFilter, setStatusFilter] = useState<GalleryStatusFilter>(null);
@@ -80,7 +89,7 @@ export default function GalleryScreen() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [discoverySeed] = useState(() => new Date().toISOString().slice(0, 10));
   const { artworks, loading: browseLoading } = useArtworks(500, isFocused);
-  const trimmedQuery = query.trim();
+  const trimmedQuery = useDeferredValue(query).trim();
   const isSearching = trimmedQuery.length > 0;
   const { catalog, loading: searchLoading, error: searchError } = useArtworkSearchCatalog(isSearching);
   const columns = width >= 1000 ? 5 : width >= 600 ? 4 : 3;
@@ -112,94 +121,71 @@ export default function GalleryScreen() {
     setVisibleCount(PAGE_SIZE);
   }, [mode, query, sort, statusFilter]);
 
+  const renderArtwork = useCallback(({ item: artwork }: { item: Artwork }) => (
+    <ArtworkCard
+      artwork={artwork}
+      cardWidth={cardWidth}
+      language={language}
+      styles={styles}
+      onPress={() => router.push({ pathname: "/artwork/[id]", params: { id: artwork.id } })}
+    />
+  ), [cardWidth, language, router, styles]);
+
   return (
-    <AppChrome title={copy.gallery[language]} eyebrow="Art Atlas">
-      <View style={styles.searchLike}>
-        <Ionicons name="search" size={17} color={colors.muted} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder={labels.search[language]}
-          placeholderTextColor={colors.muted}
-          style={styles.searchInput}
-          returnKeyType="search"
+    <AppChrome title={copy.gallery[language]} eyebrow="Art Atlas" scroll={false}>
+      <>
+        <FlatList
+          key={`gallery-${columns}`}
+          data={listLoading ? [] : visibleArtworks}
+          renderItem={renderArtwork}
+          keyExtractor={(artwork) => artwork.id}
+          numColumns={columns}
+          columnWrapperStyle={{ gap }}
+          contentContainerStyle={{ paddingHorizontal: horizontalPadding, paddingTop: 18, paddingBottom: 118, gap }}
+          keyboardShouldPersistTaps="handled"
+          {...getArtworkGridPerformanceProps(performanceMode)}
+          ListHeaderComponent={(
+            <>
+              <View style={styles.searchLike}>
+                <Ionicons name="search" size={17} color={colors.muted} />
+                <TextInput value={query} onChangeText={setQuery} placeholder={labels.search[language]} placeholderTextColor={colors.muted} style={styles.searchInput} returnKeyType="search" />
+                {query ? <Pressable accessibilityRole="button" onPress={() => setQuery("")} style={styles.clearButton}><Ionicons name="close" size={15} color={colors.ivory} /></Pressable> : null}
+              </View>
+              <View style={styles.primaryTabs}>
+                <FilterButton styles={styles} label={labels.new[language]} active={mode === "new"} onPress={() => setMode("new")} primary />
+                <FilterButton styles={styles} label={labels.personalized[language]} active={mode === "personalized"} onPress={() => setMode("personalized")} primary />
+                <FilterButton styles={styles} label={labels.undiscovered[language]} active={mode === "undiscovered"} onPress={() => setMode("undiscovered")} primary />
+              </View>
+              <View style={styles.utilityRow}>
+                <View style={styles.statusTabs}>
+                  <FilterButton styles={styles} label={labels.favorites[language]} active={statusFilter === "favorites"} onPress={() => setStatusFilter((value) => value === "favorites" ? null : "favorites")} />
+                  <FilterButton styles={styles} label={labels.read[language]} active={statusFilter === "read"} onPress={() => setStatusFilter((value) => value === "read" ? null : "read")} />
+                  <FilterButton styles={styles} label={labels.unread[language]} active={statusFilter === "unread"} onPress={() => setStatusFilter((value) => value === "unread" ? null : "unread")} />
+                </View>
+                <Pressable accessibilityRole="button" accessibilityLabel={labels.sort[language]} onPress={() => setSortOpen(true)} style={[styles.sortButton, sort !== "default" && styles.statusTabActive]}>
+                  <Ionicons name="swap-vertical" size={15} color={sort === "default" ? colors.ivory : "#ffffff"} />
+                  {width >= 350 ? <Text style={[styles.sortButtonText, sort !== "default" && styles.statusTabTextActive]}>{labels.sort[language]}</Text> : null}
+                  {sort !== "default" ? <View style={styles.sortActiveDot} /> : null}
+                </Pressable>
+              </View>
+              {showUnreadFinishedCard ? (
+                <View style={styles.readResetCard}>
+                  <View style={styles.readResetTextBlock}><Text style={styles.readResetTitle}>{labels.allRead[language]}</Text><Text style={styles.readResetText}>{labels.resetRead[language]}</Text></View>
+                  <Pressable accessibilityRole="button" onPress={resetReadArtworks} style={styles.readResetButton}><Ionicons name="refresh" size={17} color="#ffffff" /></Pressable>
+                </View>
+              ) : null}
+            </>
+          )}
+          ListEmptyComponent={(
+            listLoading ? <View style={styles.emptyState}><Text style={styles.emptyText}>{isSearching ? labels.loadingSearch[language] : labels.loadingBrowse[language]}</Text></View>
+              : searchError ? <View style={styles.emptyState}><Ionicons name="cloud-offline-outline" size={24} color={v2Colors.primary} /><Text style={styles.emptyText}>{labels.searchUnavailable[language]}</Text></View>
+                : !showUnreadFinishedCard ? <View style={styles.emptyState}><Ionicons name="search" size={24} color={v2Colors.primary} /><Text style={styles.emptyText}>{labels.noResults[language]}</Text></View> : null
+          )}
+          ListFooterComponent={!listLoading && visibleCount < filteredArtworks.length ? (
+            <Pressable accessibilityRole="button" onPress={() => setVisibleCount((value) => value + PAGE_SIZE)} style={styles.moreButton}><Text style={styles.moreText}>{labels.more[language]}</Text></Pressable>
+          ) : null}
         />
-        {query ? (
-          <Pressable accessibilityRole="button" onPress={() => setQuery("")} style={styles.clearButton}>
-            <Ionicons name="close" size={15} color={colors.ivory} />
-          </Pressable>
-        ) : null}
-      </View>
-
-      <View style={styles.primaryTabs}>
-        <FilterButton styles={styles} label={labels.new[language]} active={mode === "new"} onPress={() => setMode("new")} primary />
-        <FilterButton styles={styles} label={labels.personalized[language]} active={mode === "personalized"} onPress={() => setMode("personalized")} primary />
-        <FilterButton styles={styles} label={labels.undiscovered[language]} active={mode === "undiscovered"} onPress={() => setMode("undiscovered")} primary />
-      </View>
-
-      <View style={styles.utilityRow}>
-        <View style={styles.statusTabs}>
-          <FilterButton styles={styles} label={labels.favorites[language]} active={statusFilter === "favorites"} onPress={() => setStatusFilter((value) => value === "favorites" ? null : "favorites")} />
-          <FilterButton styles={styles} label={labels.read[language]} active={statusFilter === "read"} onPress={() => setStatusFilter((value) => value === "read" ? null : "read")} />
-          <FilterButton styles={styles} label={labels.unread[language]} active={statusFilter === "unread"} onPress={() => setStatusFilter((value) => value === "unread" ? null : "unread")} />
-        </View>
-        <Pressable accessibilityRole="button" accessibilityLabel={labels.sort[language]} onPress={() => setSortOpen(true)} style={[styles.sortButton, sort !== "default" && styles.statusTabActive]}>
-          <Ionicons name="swap-vertical" size={15} color={sort === "default" ? colors.ivory : "#ffffff"} />
-          {width >= 350 ? <Text style={[styles.sortButtonText, sort !== "default" && styles.statusTabTextActive]}>{labels.sort[language]}</Text> : null}
-          {sort !== "default" ? <View style={styles.sortActiveDot} /> : null}
-        </Pressable>
-      </View>
-
-      {showUnreadFinishedCard ? (
-        <View style={styles.readResetCard}>
-          <View style={styles.readResetTextBlock}>
-            <Text style={styles.readResetTitle}>{labels.allRead[language]}</Text>
-            <Text style={styles.readResetText}>{labels.resetRead[language]}</Text>
-          </View>
-          <Pressable accessibilityRole="button" onPress={resetReadArtworks} style={styles.readResetButton}>
-            <Ionicons name="refresh" size={17} color="#ffffff" />
-          </Pressable>
-        </View>
-      ) : null}
-
-      {listLoading ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>{isSearching ? labels.loadingSearch[language] : labels.loadingBrowse[language]}</Text>
-        </View>
-      ) : (
-        <View style={[styles.grid, { columnGap: gap, rowGap: gap }]}> 
-          {visibleArtworks.map((artwork) => (
-            <ArtworkCard
-              key={artwork.id}
-              artwork={artwork}
-              cardWidth={cardWidth}
-              language={language}
-              styles={styles}
-              onPress={() => router.push({ pathname: "/artwork/[id]", params: { id: artwork.id } })}
-            />
-          ))}
-        </View>
-      )}
-
-      {!listLoading && visibleCount < filteredArtworks.length ? (
-        <Pressable accessibilityRole="button" onPress={() => setVisibleCount((value) => value + PAGE_SIZE)} style={styles.moreButton}>
-          <Text style={styles.moreText}>{labels.more[language]}</Text>
-        </Pressable>
-      ) : null}
-      {!listLoading && searchError ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="cloud-offline-outline" size={24} color={v2Colors.primary} />
-          <Text style={styles.emptyText}>{labels.searchUnavailable[language]}</Text>
-        </View>
-      ) : null}
-      {!listLoading && !searchError && !filteredArtworks.length && !showUnreadFinishedCard ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="search" size={24} color={v2Colors.primary} />
-          <Text style={styles.emptyText}>{labels.noResults[language]}</Text>
-        </View>
-      ) : null}
-
-      <SortModal
+        <SortModal
         visible={sortOpen}
         selected={sort}
         language={language}
@@ -210,7 +196,8 @@ export default function GalleryScreen() {
           setSort(value);
           setSortOpen(false);
         }}
-      />
+        />
+      </>
     </AppChrome>
   );
 }
@@ -220,7 +207,7 @@ const ArtworkCard = memo(function ArtworkCard({ artwork, cardWidth, language, st
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`${artwork.title[language]}, ${artwork.artist[language]}`} onPress={onPress} style={[styles.card, { width: cardWidth }]}>
       <View style={styles.imageWrap}>
-        <CoverImage source={{ uri: artwork.image }} style={styles.image} imageFocus={artwork.imageFocus} />
+        <CoverImage source={{ uri: artwork.image }} recyclingKey={artwork.id} style={styles.image} imageFocus={artwork.imageFocus} />
         {dateLabel ? (
           <View style={styles.dateBadge}>
             <Text style={[styles.dateBadgeText, cardWidth < 100 && styles.dateBadgeTextCompact]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{dateLabel}</Text>

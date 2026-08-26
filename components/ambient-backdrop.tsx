@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Animated, Easing, StyleSheet, View } from "react-native";
+import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { AppTheme, isBrightTheme } from "@/constants/theme";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 
 type GlowTone = { warm: string; cool: string; accent: string; vignette: string };
 
@@ -17,15 +18,26 @@ const tones: Record<AppTheme, GlowTone> = {
 
 // Living museum atmosphere: very slow light currents that drift behind all content.
 // Motion cycles run 24-40s so the screen feels alive without ever calling attention to itself.
-export function AmbientBackdrop({ theme }: { theme: AppTheme }) {
+export function AmbientBackdrop({ theme, active = true }: { theme: AppTheme; active?: boolean }) {
   const tone = tones[theme] ?? tones.dark;
   const reducedMotion = useReducedMotion();
+  const performanceMode = useRuntimePerformanceMode();
+  const lightweight = Platform.OS === "android" && performanceMode !== "full";
+  const animate = active && !reducedMotion && !lightweight;
   const drift = useRef(new Animated.Value(0)).current;
   const sweep = useRef(new Animated.Value(0)).current;
   const breath = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (reducedMotion) return undefined;
+    if (!animate) {
+      drift.stopAnimation();
+      sweep.stopAnimation();
+      breath.stopAnimation();
+      drift.setValue(0);
+      sweep.setValue(0);
+      breath.setValue(0);
+      return undefined;
+    }
     const loops = [
       Animated.loop(Animated.sequence([
         Animated.timing(drift, { toValue: 1, duration: 38000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
@@ -42,7 +54,7 @@ export function AmbientBackdrop({ theme }: { theme: AppTheme }) {
     ];
     loops.forEach((loop) => loop.start());
     return () => loops.forEach((loop) => loop.stop());
-  }, [breath, drift, reducedMotion, sweep]);
+  }, [animate, breath, drift, sweep]);
 
   const warmStyle = {
     transform: [
@@ -66,15 +78,15 @@ export function AmbientBackdrop({ theme }: { theme: AppTheme }) {
 
   return (
     <View style={styles.wrap} pointerEvents="none">
-      <Animated.View style={[styles.glow, styles.warm, warmStyle]}>
-        <Glow color={tone.warm} opacity={isLight ? 0.26 : 0.34} />
-      </Animated.View>
-      <Animated.View style={[styles.glow, styles.cool, coolStyle]}>
-        <Glow color={tone.cool} opacity={isLight ? 0.22 : 0.3} />
-      </Animated.View>
-      <View style={[styles.glow, styles.accent]}>
-        <Glow color={tone.accent} opacity={isLight ? 0.14 : 0.2} />
-      </View>
+      {lightweight ? (
+        <View style={[styles.glow, styles.staticLightweight]}><Glow color={tone.cool} opacity={isLight ? 0.16 : 0.22} /></View>
+      ) : (
+        <>
+          <Animated.View style={[styles.glow, styles.warm, warmStyle]}><Glow color={tone.warm} opacity={isLight ? 0.26 : 0.34} /></Animated.View>
+          <Animated.View style={[styles.glow, styles.cool, coolStyle]}><Glow color={tone.cool} opacity={isLight ? 0.22 : 0.3} /></Animated.View>
+          <View style={[styles.glow, styles.accent]}><Glow color={tone.accent} opacity={isLight ? 0.14 : 0.2} /></View>
+        </>
+      )}
       <Vignette color={tone.vignette} opacity={isLight ? 0.12 : 0.42} />
     </View>
   );
@@ -116,5 +128,6 @@ const styles = StyleSheet.create({
   glow: { position: "absolute", width: "120%", height: "66%" },
   warm: { top: "-12%", right: "-34%" },
   cool: { top: "28%", left: "-42%" },
-  accent: { bottom: "-28%", right: "-38%", opacity: 0.72 }
+  accent: { bottom: "-28%", right: "-38%", opacity: 0.72 },
+  staticLightweight: { top: "2%", right: "-24%", opacity: 0.7 }
 });

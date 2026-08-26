@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { BlurView } from "expo-blur";
 import { languages, copy } from "@/data/content";
 import { AppTheme, getThemeColors, isBrightTheme } from "@/constants/theme";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -28,7 +27,7 @@ export function LanguageMenu({ expanded, onClose }: Props) {
   }
 
   return (
-    <BlurView intensity={24} tint={isBrightTheme(theme) ? "light" : "dark"} style={styles.menu}>
+    <View style={styles.menu}>
       <Text style={styles.title}>{copy.chooseLanguage[language]}</Text>
       {languages.map((item) => (
         <Pressable
@@ -40,7 +39,7 @@ export function LanguageMenu({ expanded, onClose }: Props) {
           <Text style={styles.optionText}>{item.nativeName}</Text>
         </Pressable>
       ))}
-    </BlurView>
+    </View>
   );
 }
 
@@ -81,6 +80,7 @@ return StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.line,
+    backgroundColor: colors.panel,
     overflow: "hidden",
     padding: 10
   },

@@ -20,6 +20,8 @@ import type { SuggestedUser } from "@/providers/social-provider";
 import { rankProfileDiscoveryUsers } from "@/features/profile/profile-discovery-ranking";
 import { resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
 import { profileRouteParam } from "@/utils/profile-route";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
+import { useIsFocused } from "@react-navigation/native";
 
 type ProfileFilter = "all" | "recommended" | "premium" | UserRoleId;
 type Language = "tr" | "en" | "ru" | "uz";
@@ -188,12 +190,17 @@ function AuthenticatedDiscoverScreen() {
 
 function DiscoveryHero({ users, reducedMotion, styles, language }: { users: SuggestedUser[]; reducedMotion: boolean; styles: ReturnType<typeof createStyles>; language: Language }) {
   const rotation = useRef(new Animated.Value(0)).current;
+  const performanceMode = useRuntimePerformanceMode();
+  const isFocused = useIsFocused();
+  const animate = !reducedMotion && isFocused && performanceMode === "full";
   useEffect(() => {
-    if (reducedMotion) return;
+    rotation.stopAnimation();
+    rotation.setValue(0);
+    if (!animate) return undefined;
     const animation = Animated.loop(Animated.timing(rotation, { toValue: 1, duration: 18000, easing: Easing.linear, useNativeDriver: true }));
     animation.start();
     return () => animation.stop();
-  }, [reducedMotion, rotation]);
+  }, [animate, rotation]);
   const spin = rotation.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
   const reverse = rotation.interpolate({ inputRange: [0, 1], outputRange: ["360deg", "0deg"] });
   return (

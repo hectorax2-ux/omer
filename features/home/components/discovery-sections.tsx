@@ -1,5 +1,4 @@
-import { RefObject } from "react";
-import { LayoutChangeEvent, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { EqualHeightHeaderSlot } from "@/components/ui/equal-height-header-slot";
@@ -29,7 +28,7 @@ export type HomeActionItem = {
   onPress: () => void;
 };
 
-export function QuickDiscovery({ theme, title, items, accent = v2Colors.cyan, variant = "grid", onLayout, sectionRef }: { theme: AppTheme; title: string; items: HomeActionItem[]; accent?: string; variant?: "grid" | "games"; onLayout?: (event: LayoutChangeEvent) => void; sectionRef?: RefObject<View | null> }) {
+export function QuickDiscovery({ theme, title, items, accent = v2Colors.cyan, variant = "grid" }: { theme: AppTheme; title: string; items: HomeActionItem[]; accent?: string; variant?: "grid" | "games" }) {
   const { width } = useWindowDimensions();
   const styles = createStyles(theme);
   const columns = width >= homeLayout.tabletMinWidth ? 3 : 2;
@@ -38,7 +37,7 @@ export function QuickDiscovery({ theme, title, items, accent = v2Colors.cyan, va
   const availableWidth = Math.min(width, homeLayout.tabletContentMaxWidth) - screenPadding;
   const tileWidth = Math.floor((availableWidth - gap * (columns - 1)) / columns);
   return (
-    <View ref={sectionRef} style={styles.section} onLayout={onLayout}>
+    <View style={styles.section}>
       {title ? <SectionHeading theme={theme} title={title} accent={accent} /> : null}
       <View style={[styles.actionRail, { gap }]}>
         {items.map((item, index) => {
