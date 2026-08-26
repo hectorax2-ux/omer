@@ -1,0 +1,858 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verified() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function userPath(userId) {
+      return /databases/$(database)/documents/users/$(userId);
+    }
+
+    function currentUserExists() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
+    function currentUser() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function admin() {
+      return verified() && currentUserExists() && currentUser().role == 'admin';
+    }
+
+    function participantSoftDeleteConversation() {
+      let uid = request.auth.uid;
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return request.resource.data.visibleFor[uid] == false
+        && changed.hasOnly(['visibleFor', 'deletedAt', 'archivedBy', 'pinnedBy', 'unreadCount', 'updatedAt']);
+    }
+
+    function verifiedOwner(userId) {
+      return verified() && request.auth.uid == userId;
+    }
+
+    function published() {
+      return resource.data.status == 'published';
+    }
+
+    function visibleCommunityImage() {
+      return resource.data.status == 'published'
+        || (
+          signedIn()
+          &&
+          resource.data.status == 'archived'
+          && resource.data.competitionEntry == true
+          && (!('deletedByUser' in resource.data) || resource.data.deletedByUser != true)
+          && (!('deletedByAdmin' in resource.data) || resource.data.deletedByAdmin != true)
+        );
+    }
+
+    function createsPending() {
+      return request.resource.data.status == 'pending';
+    }
+
+    function active() {
+      return resource.data.active == true;
+    }
+
+    function prophecyPredictionWindowOpen(weekId) {
+      let week = get(/databases/$(database)/documents/prophecyWeeks/$(weekId)).data;
+      return request.time < week.startsAt + duration.value(48, 'h');
+    }
+
+    function prophecyChangeCooldownOpen() {
+      let lastWrite = resource.data.updatedAt != null
+        ? resource.data.updatedAt
+        : resource.data.createdAt;
+      return request.time >= lastWrite + duration.value(2, 'h');
+    }
+
+    function isPremiumUser() {
+      return currentUserExists()
+        && currentUser().premium == true
+        && currentUser().premiumVerified == true
+        && currentUser().subscriptionStatus == 'active'
+        && ('expireDate' in currentUser())
+        && currentUser().expireDate > request.time;
+    }
+
+    // A durable Firebase session plus a provisioned user document is the member
+    // gate. Email verification remains an account-security signal, but it must not
+    // deadlock ordinary member actions when the Auth token is stale or the original
+    // mailbox is no longer reachable. Protected fields still require server/admin
+    // writes and content-specific abuse/rate-limit rules remain in force.
+    function trustedMember() {
+      return signedIn() && currentUserExists();
+    }
+
+    function protectedUserFields() {
+      return ['role', 'badges', 'systemBadges', 'adminBadges', 'followersCount', 'followingCount', 'isDisabled', 'createdAt',
+        'premium', 'isPremium', 'premiumPlan', 'purchasePlatform', 'purchaseDate', 'expireDate', 'autoRenew',
+        'subscriptionStatus', 'premiumOriginalTransactionId', 'premiumProductId', 'premiumPlatform',
+        'premiumActivatedAt', 'premiumExpiresAt', 'premiumVerified', 'premiumSource', 'timelineTimeZone', 'timelineTimeZoneUpdatedAt'];
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() || admin();
+      allow create: if isSelf(userId)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.role == 'user'
+        && (!('badges' in request.resource.data) || request.resource.data.badges == [])
+        && (!('systemBadges' in request.resource.data) || request.resource.data.systemBadges == [])
+        && (!('adminBadges' in request.resource.data) || request.resource.data.adminBadges in [[], ['art_lover']])
+        && (!('followersCount' in request.resource.data) || request.resource.data.followersCount == 0)
+        && (!('followingCount' in request.resource.data) || request.resource.data.followingCount == 0)
+        && (!('premium' in request.resource.data) || request.resource.data.premium == false)
+        && (!('isPremium' in request.resource.data) || request.resource.data.isPremium == false)
+        && (!('profileVisitVisibility' in request.resource.data) || request.resource.data.profileVisitVisibility in ['visible', 'anonymous']);
+      allow update: if isSelf(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedUserFields())
+        && (!('profileVisitVisibility' in request.resource.data) || request.resource.data.profileVisitVisibility in ['visible', 'anonymous']);
+      allow delete: if verifiedOwner(userId) || admin();
+      allow update: if admin();
+    }
+
+    // One record per signed-in account/device. Tokens are never listable by
+    // regular clients; Cloud Functions use Admin SDK for delivery and cleanup.
+    match /pushDevices/{deviceDocumentId} {
+      allow read: if admin();
+      allow create, update: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.deviceId is string
+        && request.resource.data.platform in ['android', 'ios']
+        && request.resource.data.provider == 'expo'
+        && request.resource.data.token is string
+        && request.resource.data.language in ['tr', 'en', 'ru', 'uz']
+        && request.resource.data.permissionStatus is string
+        && request.resource.data.enabled is bool
+        && request.resource.data.keys().hasOnly([
+          'uid', 'deviceId', 'platform', 'provider', 'token', 'language',
+          'permissionStatus', 'enabled', 'appVersion', 'buildNumber', 'projectId',
+          'lastRegisteredAt', 'disabledAt', 'invalidAt', 'invalidReason',
+          'createdAt', 'updatedAt'
+        ]);
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create, update, delete: if admin();
+    }
+
+    match /pushDeliveries/{deliveryId} {
+      allow read: if admin();
+      allow create, update, delete: if false;
+    }
+
+    match /pushReceipts/{receiptId} {
+      allow read: if admin();
+      allow create, update, delete: if false;
+    }
+
+    match /artworks/{artworkId} {
+      allow read: if published() || admin();
+      allow create, update, delete: if admin();
+    }
+
+    match /adminMediaLibrary/{entryId} {
+      allow read: if admin();
+      allow create, update, delete: if admin();
+    }
+
+    match /premiumPurchases/{transactionId} {
+      allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    // Apple originalTransactionId -> uid mapping. Written only by Cloud Functions
+    // (admin SDK bypasses rules); never readable or writable by clients.
+    match /appleSubscriptions/{originalTransactionId} {
+      allow read, write: if false;
+    }
+
+    // Raw Google Play purchase tokens are stored only for trusted server-side
+    // reconciliation. Client SDKs must never read or write this collection.
+    match /googleSubscriptions/{uid} {
+      allow read, write: if false;
+    }
+
+    match /artists/{artistId} {
+      allow read: if published() || admin();
+      allow create, update, delete: if admin();
+    }
+
+    match /museums/{museumId} {
+      allow read: if published() || admin();
+      allow create, update, delete: if admin();
+    }
+
+    match /artStories/{storyId} {
+      allow read: if published() || admin() || (signedIn() && resource.data.authorId == request.auth.uid);
+      allow create: if admin();
+      allow create: if trustedMember()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.source == 'member';
+      allow update: if admin();
+      allow update: if trustedMember()
+        && resource.data.authorId == request.auth.uid
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.authorId == resource.data.authorId;
+      allow delete: if admin()
+        || (trustedMember() && resource.data.authorId == request.auth.uid && resource.data.status == 'pending');
+    }
+
+    match /communityImages/{imageId} {
+      allow read: if visibleCommunityImage() || admin() || (signedIn() && resource.data.ownerId == request.auth.uid);
+      allow create: if admin();
+      allow create: if trustedMember()
+        && request.resource.data.ownerId == request.auth.uid
+        && (
+          createsPending()
+          || (request.resource.data.competitionEntry == false && request.resource.data.status == 'published')
+        )
+        && request.resource.data.likeCount == 0
+        && request.resource.data.dislikeCount == 0
+        && request.resource.data.netScore == 0;
+      allow update: if trustedMember()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ownerUsername', 'ownerDisplayName', 'updatedAt']);
+      allow update: if trustedMember()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.status == 'archived'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'deletedByUser']);
+      allow update: if trustedMember()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['boostedAt', 'updatedAt']);
+      allow update, delete: if admin();
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if admin();
+      allow create: if trustedMember()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.status in ['draft', 'pending', 'hidden', 'published']
+        && (!('isPremium' in request.resource.data)
+          || request.resource.data.isPremium != true
+          || isPremiumUser())
+        && request.resource.data.likeCount == 0
+        && request.resource.data.favoriteCount == 0;
+      allow update: if trustedMember()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['authorUsername', 'authorDisplayName', 'authorPhotoURL', 'updatedAt']);
+      allow update: if trustedMember()
+        && resource.data.authorId == request.auth.uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['authorId', 'likeCount', 'favoriteCount', 'isPremium', 'pinned', 'createdAt'])
+        && request.resource.data.status in ['draft', 'pending', 'hidden', 'archived', 'published']
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['publishedAt'])
+          || request.resource.data.status == 'published'
+        );
+      allow update, delete: if admin();
+    }
+
+    match /postComments/{commentId} {
+      allow read: if signedIn() || admin();
+      allow create: if trustedMember()
+        && request.resource.data.authorId == request.auth.uid
+        && (!('isPremium' in request.resource.data)
+          || request.resource.data.isPremium != true
+          || isPremiumUser())
+        && request.resource.data.status in ['published', 'pending'];
+      allow update: if trustedMember()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['authorUsername', 'authorDisplayName', 'updatedAt']);
+      allow update: if trustedMember()
+        && resource.data.authorId == request.auth.uid
+        && request.time < resource.data.createdAt + duration.value(3, 'm')
+        && (!('editedAt' in resource.data) || resource.data.editedAt == null)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt', 'updatedAt']);
+      allow update, delete: if admin()
+        || (trustedMember() && resource.data.authorId == request.auth.uid)
+        || (trustedMember()
+          && exists(/databases/$(database)/documents/posts/$(resource.data.postId))
+          && get(/databases/$(database)/documents/posts/$(resource.data.postId)).data.authorId == request.auth.uid
+          && request.resource.data.status == 'archived');
+    }
+
+    match /communityImageComments/{commentId} {
+      allow read: if signedIn() || admin();
+      allow create: if trustedMember()
+        && request.resource.data.authorId == request.auth.uid
+        && (!('isPremium' in request.resource.data)
+          || request.resource.data.isPremium != true
+          || isPremiumUser())
+        && request.resource.data.status in ['published', 'pending'];
+      allow update: if trustedMember()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['authorUsername', 'authorDisplayName', 'updatedAt']);
+      allow update, delete: if admin()
+        || (trustedMember() && resource.data.authorId == request.auth.uid)
+        || (trustedMember()
+          && exists(/databases/$(database)/documents/communityImages/$(resource.data.communityImageId))
+          && get(/databases/$(database)/documents/communityImages/$(resource.data.communityImageId)).data.ownerId == request.auth.uid
+          && request.resource.data.status == 'archived');
+    }
+
+    match /likes/{likeId} {
+      allow read: if signedIn();
+      allow create, update: if trustedMember()
+        && request.resource.data.userId == request.auth.uid
+        && likeId == request.auth.uid + '_' + request.resource.data.targetType + '_' + request.resource.data.targetId
+        && request.resource.data.value in ['like', 'dislike'];
+      allow delete: if trustedMember() && resource.data.userId == request.auth.uid;
+    }
+
+    match /favorites/{favoriteId} {
+      allow read: if signedIn();
+      allow create: if trustedMember()
+        && request.resource.data.userId == request.auth.uid
+        && favoriteId == request.auth.uid + '_' + request.resource.data.targetType + '_' + request.resource.data.targetId;
+      allow delete: if trustedMember() && resource.data.userId == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /reads/{readId} {
+      allow read: if signedIn() && (
+        resource.data.userId == request.auth.uid
+        || resource.data.uid == request.auth.uid
+        || admin()
+      );
+      allow create, update: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.targetType in ['artwork', 'bookFilm', 'artStory']
+        && readId == request.auth.uid + '_' + request.resource.data.targetType + '_' + request.resource.data.targetId;
+      allow delete: if signedIn() && (
+        resource.data.userId == request.auth.uid
+        || resource.data.uid == request.auth.uid
+      );
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if signedIn();
+      allow create, update: if trustedMember()
+        && request.resource.data.uid == request.auth.uid
+        && ratingId == request.auth.uid + '_' + request.resource.data.targetType + '_' + request.resource.data.targetId
+        && request.resource.data.value is number
+        && request.resource.data.value >= 1
+        && request.resource.data.value <= 10;
+      allow delete: if trustedMember() && resource.data.uid == request.auth.uid;
+    }
+
+    match /ratingSummaries/{summaryId} {
+      allow read: if signedIn();
+      allow create, update: if trustedMember()
+        && request.resource.data.sum is number
+        && request.resource.data.count is number
+        && request.resource.data.sum >= 0
+        && request.resource.data.count >= 0;
+    }
+
+    match /superLikes/{superLikeId} {
+      allow read: if signedIn();
+      allow create: if trustedMember()
+        && request.resource.data.uid == request.auth.uid
+        && superLikeId == request.auth.uid + '_' + request.resource.data.targetId;
+      allow delete: if trustedMember() && resource.data.uid == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /superLikeSummaries/{summaryId} {
+      allow read: if signedIn();
+      allow create, update: if trustedMember()
+        && request.resource.data.count is number
+        && request.resource.data.count >= 0;
+    }
+
+    match /reports/{reportId} {
+      allow read, update, delete: if admin();
+      allow create: if trustedMember()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.status == 'open';
+    }
+
+    match /supportTickets/{ticketId} {
+      allow read: if admin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'open';
+      allow update: if admin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+          && resource.data.status in ['open', 'answered']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['messages', 'lastMessageAt', 'updatedAt', 'status'])
+          && request.resource.data.status in ['open', 'answered', 'resolved']
+        );
+      allow delete: if admin();
+    }
+
+    match /conversations/{conversationId} {
+      allow read: if signedIn()
+        && request.auth.uid in resource.data.participantIds
+        || admin();
+      allow create: if admin();
+      allow delete: if false;
+      allow update: if admin()
+        || signedIn()
+        && request.auth.uid in resource.data.participantIds
+        && participantSoftDeleteConversation();
+
+      match /messages/{messageId} {
+        allow read: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds
+          || admin();
+        allow create: if admin();
+        allow update, delete: if false;
+      }
+    }
+
+    match /userBlocks/{blockId} {
+      allow read: if signedIn()
+        && (resource.data.blockerId == request.auth.uid || admin());
+      allow create: if signedIn()
+        && request.resource.data.blockerId == request.auth.uid;
+      allow update, delete: if signedIn()
+        && resource.data.blockerId == request.auth.uid;
+    }
+
+    match /userFollows/{followId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.followerId == request.auth.uid
+        && request.resource.data.followedId is string
+        && request.resource.data.followedId != request.auth.uid;
+      allow delete: if signedIn()
+        && resource.data.followerId == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /messageReports/{reportId} {
+      allow read, update, delete: if admin();
+      allow create: if trustedMember()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.status == 'open';
+    }
+
+    match /users/{userId}/usage/dm {
+      allow read: if isSelf(userId) || admin();
+      allow write: if false;
+    }
+
+    match /users/{userId}/dmDeleted/{conversationId} {
+      allow read, write: if verifiedOwner(userId);
+    }
+
+    match /users/{userId}/settings/messaging {
+      allow read, write: if isSelf(userId) || admin();
+    }
+
+    match /adminLogs/{logId} {
+      allow read, create: if admin();
+      allow update, delete: if false;
+    }
+
+    match /adminAiStudioDrafts/{userId}/kinds/{kindId} {
+      allow read, write: if admin() && request.auth.uid == userId;
+    }
+
+    match /adminQuizPrefs/{userId} {
+      allow read, write: if admin() && request.auth.uid == userId;
+    }
+
+    match /quizzes/{quizId} {
+      allow read: if admin()
+        || resource.data.status == 'published'
+        || resource.data.status == 'scheduled';
+      allow create, update, delete: if admin();
+    }
+
+    match /jigsawPuzzles/{puzzleId} {
+      allow read: if admin()
+        || resource.data.status == 'published'
+        || resource.data.status == 'scheduled';
+      allow create, update, delete: if admin();
+    }
+
+    match /jigsawAttempts/{attemptId} {
+      allow read: if signedIn();
+      allow create: if trustedMember()
+        && request.resource.data.uid == request.auth.uid
+        && !exists(/databases/$(database)/documents/jigsawAttempts/$(attemptId));
+      allow update, delete: if admin();
+    }
+
+    match /quizAttempts/{attemptId} {
+      allow read: if signedIn();
+      allow create: if trustedMember()
+        && request.resource.data.uid == request.auth.uid
+        && !exists(/databases/$(database)/documents/quizAttempts/$(attemptId));
+      allow update, delete: if admin();
+    }
+
+    match /guessArtworkAttempts/{attemptId} {
+      allow read: if signedIn();
+      allow create: if trustedMember()
+        && request.resource.data.uid == request.auth.uid
+        && !exists(/databases/$(database)/documents/guessArtworkAttempts/$(attemptId));
+      allow update, delete: if admin();
+    }
+
+    // Timeline game state and scores are authoritative. Clients can only reach
+    // these documents through authenticated Cloud Functions, which validate
+    // daily limits, source dates, elapsed time and one-time session completion.
+    match /gameSessions/{sessionId} {
+      allow read: if admin();
+      allow create, update, delete: if false;
+    }
+
+    match /userDailyGameUsage/{usageId} {
+      allow read: if admin();
+      allow create, update, delete: if false;
+    }
+
+    match /timelineGameResults/{resultId} {
+      allow read: if admin();
+      allow create, update, delete: if false;
+    }
+
+    match /dailyGameScores/{scoreId} {
+      allow read: if admin();
+      allow create, update, delete: if false;
+    }
+
+    match /monthlyGameScores/{scoreId} {
+      allow read: if admin();
+      allow create, update, delete: if false;
+    }
+
+    match /monthlyGeneralScores/{scoreId} {
+      allow read: if admin();
+      allow create, update, delete: if false;
+    }
+
+    match /timelineDailyBuckets/{bucketId} {
+      allow read, write: if admin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if admin()
+        || signedIn()
+        && (
+          (('recipientId' in resource.data) && resource.data.recipientId == request.auth.uid)
+          || (('recipientId' in resource.data) && resource.data.recipientId == 'all')
+          || (('userId' in resource.data) && resource.data.userId == request.auth.uid)
+          || (('userId' in resource.data) && resource.data.userId == 'all')
+          || !('userId' in resource.data)
+        )
+        && resource.data.status == 'published'
+        && (!('isDeleted' in resource.data) || resource.data.isDeleted != true);
+      allow update: if admin()
+        || signedIn()
+        && (
+          (('recipientId' in resource.data) && resource.data.recipientId == request.auth.uid)
+          || (('recipientId' in resource.data) && resource.data.recipientId == 'all')
+          || (('userId' in resource.data) && resource.data.userId == request.auth.uid)
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy', 'readAt', 'updatedAt']);
+      // User activity notifications are created by trusted Firestore/HTTPS
+      // Functions after validating the source action. Clients cannot forge or
+      // spam notification documents; Admin SDK writes bypass these rules.
+      allow create: if admin();
+      allow delete: if admin();
+    }
+
+    match /notificationLogs/{logId} {
+      allow read, write: if admin();
+      allow create: if trustedMember();
+    }
+
+    match /notificationReads/{readId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid || admin();
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.notificationId is string
+        && readId == request.auth.uid + '_' + request.resource.data.notificationId;
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.notificationId == resource.data.notificationId;
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid || admin();
+    }
+
+    match /adminNotifications/{notificationId} {
+      allow read, write: if admin();
+    }
+
+    match /notificationTemplates/{templateId} {
+      allow read, write: if admin();
+    }
+
+    match /notificationAutomations/{automationId} {
+      allow read, write: if admin();
+    }
+
+    match /rolesBadges/{roleBadgeId} {
+      allow read: if true;
+      allow create, update, delete: if admin();
+    }
+
+    match /ads/{adId} {
+      allow read: if published() || admin();
+      allow create, update, delete: if admin();
+    }
+
+    match /appSettings/{settingId} {
+      allow read: if true;
+      allow create, update, delete: if admin();
+    }
+
+    match /rewardInfos/{rewardId} {
+      allow read: if published() || admin();
+      allow create, update, delete: if admin();
+    }
+
+    match /bookFilms/{itemId} {
+      allow read: if published() || admin();
+      allow create, update, delete: if admin();
+    }
+
+    match /duels/{duelId} {
+      allow read: if active() || admin();
+      allow create, update, delete: if admin();
+
+      match /votes/{userId} {
+        allow read: if admin() || isSelf(userId);
+        allow create: if trustedMember()
+          && request.auth.uid == userId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.side in ['a', 'b']
+          && request.resource.data.changeCount == 0;
+        allow update: if admin()
+          || trustedMember()
+          && request.auth.uid == userId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.side in ['a', 'b']
+          && request.resource.data.side != resource.data.side
+          && request.resource.data.changeCount == resource.data.changeCount + 1
+          && request.resource.data.changeCount <= 1;
+        allow delete: if false;
+      }
+    }
+
+    match /rewardedBoostCredits/{creditId} {
+      allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create, update: if trustedMember()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.weekId is string
+        && request.resource.data.credits >= 0
+        && request.resource.data.credits <= 1;
+      allow delete: if admin();
+    }
+
+    match /prophecyWeeks/{weekId} {
+      allow read: if admin() || true;
+      allow create, update, delete: if admin();
+
+      match /predictions/{userId} {
+        allow read: if admin() || isSelf(userId);
+        allow create: if trustedMember()
+          && request.auth.uid == userId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.candidateId is string
+          && prophecyPredictionWindowOpen(weekId);
+      allow update: if admin()
+        || trustedMember()
+        && request.auth.uid == userId
+        && currentUserExists()
+        && isPremiumUser()
+        && prophecyPredictionWindowOpen(weekId)
+          && prophecyChangeCooldownOpen()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.candidateId is string
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['candidateId', 'updatedAt']);
+        allow delete: if false;
+      }
+    }
+
+    match /seerLevels/{levelId} {
+      allow read: if true;
+      allow create, update, delete: if admin();
+    }
+
+    match /seerScores/{uid} {
+      allow read: if true;
+      allow create, update, delete: if admin();
+    }
+
+    match /rankingOverrides/{uid} {
+      allow read: if true;
+      allow create, update, delete: if admin();
+    }
+
+    match /artDnaPools/{poolId} {
+      allow read: if active() || admin();
+      allow create, update, delete: if admin();
+    }
+
+    match /artDnaResults/{resultId} {
+      allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if trustedMember()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.sourceText is string;
+      allow update, delete: if admin();
+    }
+
+    match /chanceCards/{cardId} {
+      allow read: if active() || admin();
+      allow create, update, delete: if admin();
+    }
+
+    match /chanceCardDraws/{drawId} {
+      allow read: if signedIn();
+      allow create, update, delete: if admin();
+    }
+
+    match /chanceCardDrawRequests/{requestId} {
+      allow read, create, update, delete: if admin();
+    }
+
+    match /chanceCardWeeklyQuota/{weekKey} {
+      allow read, create, update, delete: if admin();
+    }
+
+    match /profileVisits/{visitId} {
+      // Legacy records stay available to administrators for retention and
+      // support. New clients use the identity-safe signal/view collections.
+      allow read: if admin();
+      allow create: if false;
+      allow update, delete: if admin();
+    }
+
+    match /profileVisitSignals/{signalId} {
+      function validSignalIdentity(data) {
+        return data.ownerUid is string
+          && data.visitorUid == request.auth.uid
+          && data.ownerUid != request.auth.uid
+          && signalId == data.ownerUid + '_' + request.auth.uid
+          && exists(userPath(data.ownerUid));
+      }
+
+      // A visitor can only submit an opaque owner/visitor signal. Server-owned
+      // deduplication metadata and all identity views are never client-readable.
+      allow read: if admin();
+      allow create: if signedIn()
+        && validSignalIdentity(request.resource.data)
+        && request.resource.data.keys().hasOnly(['ownerUid', 'visitorUid', 'requestedAt'])
+        && request.resource.data.requestedAt == request.time;
+      allow update: if signedIn()
+        && validSignalIdentity(resource.data)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.visitorUid == resource.data.visitorUid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['requestedAt'])
+        && request.resource.data.requestedAt == request.time;
+      allow delete: if admin();
+    }
+
+    match /profileVisitSummaries/{ownerUid}/visitors/{viewId} {
+      allow read: if isSelf(ownerUid) || admin();
+      allow create, update, delete: if false;
+    }
+
+    match /profileVisitViews/{ownerUid}/visitors/{viewId} {
+      allow read: if admin() || (isSelf(ownerUid) && isPremiumUser());
+      allow create, update, delete: if false;
+    }
+
+    match /personalMuseums/{museumId} {
+      function ownsPersonalMuseum(data) {
+        return signedIn() && (data.ownerId == request.auth.uid || data.ownerUsername == currentUser().username);
+      }
+
+      allow read: if active() || admin() || ownsPersonalMuseum(resource.data);
+      allow create: if trustedMember()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerUsername == currentUser().username
+        && request.resource.data.artworkIds.size() <= 100;
+      allow update: if admin()
+        || (
+          trustedMember()
+          && ownsPersonalMuseum(resource.data)
+          && request.resource.data.ownerId == resource.data.ownerId
+          && request.resource.data.artworkIds.size() <= 100
+        );
+      allow delete: if admin();
+    }
+
+    // Locale-independent, additive Art Journey progress. Journey progress does
+    // not grant score, premium or rewards; those remain owned by their existing
+    // server-authoritative systems. Arrays are bounded to prevent unbounded
+    // client documents while supporting journeys with 100+ stages.
+    match /journeyProgress/{userId} {
+      function validJourneyProgress() {
+        return request.resource.data.keys().hasOnly([
+          'userId', 'journeyId', 'journeyVersion', 'completedStageIds',
+          'activeStageId', 'openedStageIds', 'updatedAt'
+        ])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.journeyId is string
+          && request.resource.data.journeyVersion is int
+          && request.resource.data.journeyVersion >= 1
+          && request.resource.data.completedStageIds is list
+          && request.resource.data.completedStageIds.size() <= 1000
+          && request.resource.data.openedStageIds is list
+          && request.resource.data.openedStageIds.size() <= 1000
+          && request.resource.data.activeStageId is string
+          && request.resource.data.updatedAt is timestamp;
+      }
+
+      allow read: if isSelf(userId) || admin();
+      allow create: if isSelf(userId) && validJourneyProgress();
+      allow update: if isSelf(userId)
+        && resource.data.userId == request.auth.uid
+        && validJourneyProgress();
+      allow delete: if isSelf(userId) || admin();
+    }
+
+    match /timeCapsules/{capsuleId} {
+      allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if trustedMember()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.noteEncrypted is string;
+      allow update: if admin()
+        || (
+          trustedMember()
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['opened', 'updatedAt'])
+        );
+      allow delete: if admin();
+    }
+
+    match /duelAutomation/{docId} {
+      allow read, write: if admin();
+    }
+
+    match /prophecyPackages/{packageId} {
+      allow read, write: if admin();
+    }
+
+    match /competitionArchives/{archiveId} {
+      allow read: if published() || admin() || signedIn();
+      allow create, update, delete: if admin();
+    }
+
+    match /competitionWeeks/{weekId} {
+      allow read: if true;
+      allow create, update, delete: if admin();
+    }
+  }
+}

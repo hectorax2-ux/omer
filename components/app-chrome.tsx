@@ -100,7 +100,7 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const normalizedPathname = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
   const showFloatingCreate = showFloatingShortcuts && normalizedPathname === "/feed" && !keyboardVisible && !!floatingCreateAction;
   const hasFloatingShortcuts = shortcutVisibility.showAtlasClub || shortcutVisibility.showPremium || showFloatingCreate;
-  const { account, isAuthenticated, canUseMemberFeatures, resendVerificationEmail } = useAccount();
+  const { account, isAuthenticated, isEmailVerified, resendVerificationEmail } = useAccount();
   const { trackPageViewForAds } = useAds();
   const { notifications: systemNotifications } = useArtSystems();
   const { width } = useWindowDimensions();
@@ -261,7 +261,7 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
       <ProfileSearchModal visible={searchOpen} onClose={() => setSearchOpen(false)} onNavigate={navigate} />
       {resolvedShowTopAd ? (
         <View style={[styles.topAdWrap, themeStyles.topAdWrap, { paddingHorizontal: horizontalPadding }]}>
-          {isAuthenticated && !canUseMemberFeatures ? <EmailVerificationBanner onResend={resendVerificationEmail} /> : null}
+          {isAuthenticated && !isEmailVerified ? <EmailVerificationBanner onResend={resendVerificationEmail} /> : null}
           {topAdContent !== undefined ? topAdContent : <AdSlot label={copy.adSlot[language]} compact />}
         </View>
       ) : null}

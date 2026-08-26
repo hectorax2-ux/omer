@@ -89,6 +89,7 @@ function AccountContent() {
     register,
     verifyEmailCode,
     forgotPassword,
+    changeAccountEmail,
     signInWithGoogle,
     signInWithApple,
     saveAccountProfile,
@@ -120,6 +121,7 @@ function AccountContent() {
   const [deleting, setDeleting] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [accountError, setAccountError] = useState("");
+  const [accountNotice, setAccountNotice] = useState("");
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [museumNotice, setMuseumNotice] = useState("");
   const [profileUploadOpen, setProfileUploadOpen] = useState(false);
@@ -159,7 +161,7 @@ function AccountContent() {
     setDisplayName(account.displayName);
     setBio(account.bio);
     setPassword(account.password);
-    setEmail(account.email);
+    setEmail(pendingVerificationEmail ?? account.email);
     setAvatar(account.avatar);
     setCountry(account.country);
     setCity(account.city);
@@ -175,7 +177,7 @@ function AccountContent() {
 
   useEffect(() => {
     resetDraftFromAccount();
-  }, [account.username, account.displayName, account.bio, account.password, account.email, account.avatar, account.country, account.city, account.interests, account.socialLinks, account.isDiscoverableByCountry]);
+  }, [account.username, account.displayName, account.bio, account.password, account.email, account.avatar, account.country, account.city, account.interests, account.socialLinks, account.isDiscoverableByCountry, pendingVerificationEmail]);
 
   useEffect(() => {
     if (!postModalOpen && !profileUploadOpen) return;
@@ -185,6 +187,7 @@ function AccountContent() {
 
   async function saveAccount() {
     setAccountError("");
+    setAccountNotice("");
     if (!canUseMemberFeatures) {
       setAccountError("Profil düzenlemek için e-posta adresinizi doğrulayın.");
       return;
@@ -212,6 +215,16 @@ function AccountContent() {
     }
 
     setSaving(true);
+    const normalizedEmail = email.trim().toLowerCase();
+    const currentAuthEmail = firebaseAuth.currentUser?.email?.trim().toLowerCase() ?? account.email.trim().toLowerCase();
+    const emailResult = normalizedEmail !== currentAuthEmail
+      ? await changeAccountEmail(normalizedEmail, password)
+      : undefined;
+    if (emailResult && !emailResult.ok) {
+      setSaving(false);
+      setAccountError(emailResult.message);
+      return;
+    }
     const result = await saveAccountProfile({
       username: normalizeUsername(username),
       displayName: normalizeDisplayName(displayName),
@@ -257,6 +270,7 @@ function AccountContent() {
     }
 
     setSaved(true);
+    if (emailResult?.message) setAccountNotice(emailResult.message);
   }
 
   async function confirmDeleteAccount(reauth?: { password?: string; googleIdToken?: string; appleIdentityToken?: string; appleRawNonce?: string }) {
@@ -881,6 +895,7 @@ function AccountContent() {
               <Text style={styles.saveText}>{saving ? (language === "tr" ? "Kaydediliyor..." : language === "ru" ? "Сохранение..." : language === "uz" ? "Saqlanmoqda..." : "Saving...") : copy.save[language]}</Text>
             </Pressable>
             {accountError ? <Text style={styles.errorText}>{accountError}</Text> : null}
+            {accountNotice ? <Text style={styles.savedText}>{accountNotice}</Text> : null}
             {saved ? (
               <Text style={styles.savedText}>
                 {language === "tr" ? "Bilgileriniz kaydedildi." : language === "en" ? "Your details were saved." : language === "ru" ? "Данные сохранены." : "Ma'lumotlaringiz saqlandi."}

@@ -122,7 +122,7 @@ function sortConversations(items: ConversationRecord[], uid: string) {
 }
 
 export function MessagingProvider({ children }: PropsWithChildren) {
-  const { account, isAuthenticated, canUseMemberFeatures, isEmailVerified } = useAccount();
+  const { account, isAuthenticated, canUseMemberFeatures } = useAccount();
   const pathname = usePathname();
   const startupPhase = useStartupPhase();
   const messagingNetworkReady = startupPhase !== "critical" || pathname.startsWith("/messages");
@@ -244,7 +244,6 @@ export function MessagingProvider({ children }: PropsWithChildren) {
 
   const sendMessage = useCallback(async (input: { recipientId?: string; conversationId?: string; text: string; clientMessageId?: string }) => {
     if (!canUseMemberFeatures) return { ok: false, message: "Mesaj göndermek için giriş yapmalısın." };
-    if (!isEmailVerified) return { ok: false, message: "Mesaj göndermek için e-postanı doğrulamalısın." };
     const text = input.text.trim();
     if (!text) return { ok: false, message: "Mesaj boş olamaz." };
     const clientMessageId = input.clientMessageId || `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -290,7 +289,7 @@ export function MessagingProvider({ children }: PropsWithChildren) {
       setSyncError(message);
       return { ok: false, message, premiumUpsell };
     }
-  }, [account.uid, canUseMemberFeatures, isEmailVerified]);
+  }, [account.uid, canUseMemberFeatures]);
 
   const retryPending = useCallback(async (clientMessageId: string) => {
     const pending = pendingMessages.find((item) => item.clientMessageId === clientMessageId);

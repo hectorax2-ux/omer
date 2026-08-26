@@ -1,0 +1,82 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verified() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function currentUser() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function admin() {
+      return verified() && currentUser().role == 'admin';
+    }
+
+    function validImageMime() {
+      return request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
+
+    function maxSize(bytes) {
+      return request.resource.size <= bytes;
+    }
+
+    match /users/{userId}/profile/{fileName} {
+      allow read: if true;
+      allow write: if signedIn()
+        && request.auth.uid == userId
+        && validImageMime()
+        && maxSize(2 * 1024 * 1024);
+      allow delete: if signedIn() && (request.auth.uid == userId || admin());
+    }
+
+    match /users/{userId}/communityImages/{fileName} {
+      allow read: if true;
+      allow write: if signedIn()
+        && request.auth.uid == userId
+        && validImageMime()
+        && maxSize(4 * 1024 * 1024);
+      allow delete: if signedIn() && (request.auth.uid == userId || admin());
+    }
+
+    match /users/{userId}/museumCover/{fileName} {
+      allow read: if true;
+      allow write: if signedIn()
+        && request.auth.uid == userId
+        && validImageMime()
+        && maxSize(4 * 1024 * 1024);
+      allow delete: if signedIn() && (request.auth.uid == userId || admin());
+    }
+
+    match /users/{userId}/museumCovers/{fileName} {
+      allow read: if true;
+      allow write: if signedIn()
+        && request.auth.uid == userId
+        && validImageMime()
+        && maxSize(4 * 1024 * 1024);
+      allow delete: if signedIn() && (request.auth.uid == userId || admin());
+    }
+
+    match /users/{userId}/artStories/{fileName} {
+      allow read: if true;
+      allow write: if signedIn()
+        && request.auth.uid == userId
+        && validImageMime()
+        && maxSize(4 * 1024 * 1024);
+      allow delete: if signedIn() && (request.auth.uid == userId || admin());
+    }
+
+    match /admin/{assetType}/{fileName} {
+      allow read: if true;
+      allow write, delete: if admin()
+        && assetType in ['artworks', 'artists', 'museums', 'ads', 'events', 'duels', 'chanceCards', 'badges', 'artDna', 'studio']
+        && validImageMime()
+        && maxSize(10 * 1024 * 1024);
+    }
+  }
+}

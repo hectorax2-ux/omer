@@ -24,6 +24,7 @@ import {
   logout as firebaseLogout,
   normalizeUserProfile,
   registerWithEmail,
+  requestEmailChange,
   resetPassword,
   sendEmailVerification,
   syncUserIdentityDenormalizedFields,
@@ -112,6 +113,7 @@ type AccountContextValue = {
   verifyEmailCode: (code?: string) => Promise<AuthActionResult>;
   forgotPassword: (email: string) => Promise<AuthActionResult>;
   resendVerificationEmail: () => Promise<AuthActionResult>;
+  changeAccountEmail: (email: string, currentPassword?: string) => Promise<AuthActionResult>;
   signInWithGoogle: (idToken?: string) => Promise<AuthActionResult>;
   signInWithApple: () => Promise<AuthActionResult>;
   saveAccountProfile: (nextAccount: Partial<Account> & { avatarUri?: string; completeOnboarding?: boolean; removeAvatar?: boolean }) => Promise<AuthActionResult>;
@@ -171,6 +173,7 @@ export const AccountContext = createContext<AccountContextValue>({
   verifyEmailCode: async () => ({ ok: false, message: "" }),
   forgotPassword: async () => ({ ok: false, message: "" }),
   resendVerificationEmail: async () => ({ ok: false, message: "" }),
+  changeAccountEmail: async () => ({ ok: false, message: "" }),
   signInWithGoogle: async () => ({ ok: false, message: "" }),
   signInWithApple: async () => ({ ok: false, message: "" }),
   saveAccountProfile: async () => ({ ok: false, message: "" }),
@@ -300,12 +303,37 @@ export function AccountProvider({ children }: PropsWithChildren) {
     const sociallyVerified = hasSocialAuthProvider(user);
 
     return onSnapshot(doc(firestoreDb, "users", user.uid), async (snapshot) => {
-      const profile = snapshot.exists()
+      const loadedProfile = snapshot.exists()
         ? normalizeUserProfile(snapshot.data(), snapshot.id)
         : sociallyVerified
           ? await ensureFirestoreProfile(user).catch(() => null)
           : null;
       if (firebaseAuth.currentUser?.uid !== user.uid) return;
+      const authEmail = firebaseAuth.currentUser?.email?.trim() ?? "";
+      const shouldSyncVerifiedEmail = Boolean(
+        loadedProfile
+        && authEmail
+        && (firebaseAuth.currentUser?.emailVerified || sociallyVerified)
+        && loadedProfile.email.trim().toLowerCase() !== authEmail.toLowerCase()
+      );
+      const profile = loadedProfile && shouldSyncVerifiedEmail
+        ? {
+            ...loadedProfile,
+            email: authEmail,
+            socialLinks: {
+              ...loadedProfile.socialLinks,
+              email: !loadedProfile.socialLinks.email || loadedProfile.socialLinks.email === loadedProfile.email
+                ? authEmail
+                : loadedProfile.socialLinks.email
+            }
+          }
+        : loadedProfile;
+      if (profile && shouldSyncVerifiedEmail) {
+        void updateUserProfile(user.uid, {
+          email: profile.email,
+          socialLinks: profile.socialLinks
+        }).catch((error) => console.warn("[Auth] Verified email profile sync failed.", error));
+      }
       if (profile) {
         if (firebaseAuth.currentUser?.uid !== user.uid) return;
         profileServerReadyUidRef.current = user.uid;
@@ -374,14 +402,31 @@ export function AccountProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     const refreshVerification = async () => {
       const user = firebaseAuth.currentUser;
-      if (!user || isEmailVerified || hasSocialAuthProvider(user) || verificationRefreshInFlight.current) return;
+      if (!user || hasSocialAuthProvider(user) || verificationRefreshInFlight.current) return;
+      if (isEmailVerified && !pendingVerificationEmail) return;
       verificationRefreshInFlight.current = true;
       try {
         await reload(user);
-        if (!user.emailVerified) return;
+        const pendingEmail = pendingVerificationEmail?.trim().toLowerCase();
+        if (!user.emailVerified || (pendingEmail && user.email?.trim().toLowerCase() !== pendingEmail)) return;
         await getIdToken(user, true);
         setIsEmailVerified(true);
         setPendingVerificationEmail(undefined);
+        const verifiedEmail = user.email?.trim();
+        if (verifiedEmail) {
+          setAccount((current) => {
+            if (current.uid !== user.uid || current.email === verifiedEmail) return current;
+            const socialLinks = {
+              ...current.socialLinks,
+              email: !current.socialLinks.email || current.socialLinks.email === current.email
+                ? verifiedEmail
+                : current.socialLinks.email
+            };
+            void updateUserProfile(user.uid, { email: verifiedEmail, socialLinks })
+              .catch((error) => console.warn("[Auth] Verified email refresh sync failed.", error));
+            return { ...current, email: verifiedEmail, socialLinks };
+          });
+        }
       } catch {
         // Returning from a mail app must never block foreground navigation.
       } finally {
@@ -392,7 +437,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
       if (state === "active") void refreshVerification();
     });
     return () => subscription.remove();
-  }, [isEmailVerified]);
+  }, [isEmailVerified, pendingVerificationEmail]);
 
   // On every authenticated launch, reconcile the platform store with Firebase. iOS
   // keeps its existing server sync; Android also restores Play purchases before the
@@ -422,7 +467,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
       isEmailVerified,
       canBrowsePublicContent: isAuthenticated && !account.isSuspended,
       canUseMemberFeatures:
-        isAuthenticated && (isEmailVerified || account.isPremium) && !account.isSuspended,
+        isAuthenticated && !account.isSuspended,
       pendingVerificationEmail,
       authLoading,
       profileHydrated,
@@ -557,7 +602,14 @@ export function AccountProvider({ children }: PropsWithChildren) {
           if (!user) {
             return { ok: false, message: "Doğrulama e-postası göndermek için önce giriş yapmanız gerekir." };
           }
-          if (user.emailVerified) {
+          await reload(user);
+          if (user.emailVerified || hasSocialAuthProvider(user)) {
+            const pendingEmail = pendingVerificationEmail?.trim().toLowerCase();
+            if (pendingEmail && user.email?.trim().toLowerCase() !== pendingEmail) {
+              await requestEmailChange(pendingEmail, undefined, user);
+              return { ok: true, message: "Yeni e-posta adresinize doğrulama bağlantısı tekrar gönderildi." };
+            }
+            await getIdToken(user, true);
             setIsEmailVerified(true);
             setPendingVerificationEmail(undefined);
             return { ok: true, message: "E-posta adresiniz zaten doğrulanmış." };
@@ -565,6 +617,40 @@ export function AccountProvider({ children }: PropsWithChildren) {
           await sendEmailVerification(user);
           setPendingVerificationEmail(user.email ?? pendingVerificationEmail);
           return { ok: true, message: "Doğrulama e-postası tekrar gönderildi." };
+        } catch (error) {
+          return { ok: false, message: getFriendlyAuthError(error) };
+        }
+      },
+      changeAccountEmail: async (nextEmail: string, currentPassword?: string) => {
+        try {
+          const user = firebaseAuth.currentUser;
+          if (!user) {
+            return { ok: false, message: "E-posta değiştirmek için önce giriş yapmanız gerekir." };
+          }
+
+          const normalizedEmail = nextEmail.trim().toLowerCase();
+          if (!normalizedEmail || !normalizedEmail.includes("@")) {
+            return { ok: false, message: "Lütfen geçerli bir e-posta adresi yazın." };
+          }
+
+          await reload(user);
+          const emailChanged = normalizedEmail !== user.email?.trim().toLowerCase();
+          await requestEmailChange(normalizedEmail, currentPassword, user);
+          if (!emailChanged && user.emailVerified) {
+            await getIdToken(user, true);
+            setIsEmailVerified(true);
+            setPendingVerificationEmail(undefined);
+            return { ok: true, message: "E-posta adresiniz zaten doğrulanmış." };
+          }
+
+          setPendingVerificationEmail(normalizedEmail);
+          return {
+            ok: true,
+            message: emailChanged
+              ? "Yeni e-posta adresinize doğrulama bağlantısı gönderildi. Bağlantıyı açınca adresiniz otomatik güncellenecek."
+              : "Doğrulama e-postası tekrar gönderildi.",
+            requiresVerification: true
+          };
         } catch (error) {
           return { ok: false, message: getFriendlyAuthError(error) };
         }
@@ -643,8 +729,8 @@ export function AccountProvider({ children }: PropsWithChildren) {
             return { ok: false, message: "Profil kaydetmek için giriş yapmanız gerekir." };
           }
 
-          if (!isAuthenticated || (!isEmailVerified && !hasSocialAuthProvider())) {
-            return { ok: false, message: "Profil kaydetmek için e-posta adresinizi doğrulayın." };
+          if (!isAuthenticated) {
+            return { ok: false, message: "Profil kaydetmek için giriş yapmanız gerekir." };
           }
 
           const username = nextAccount.username ? normalizeUsername(nextAccount.username) : account.username;
@@ -1047,9 +1133,9 @@ function getFriendlyAuthError(error: unknown) {
   if (combinedMessage.includes("INVALID_LOGIN_CREDENTIALS") || code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") return "E-posta veya şifre hatalı.";
   if (combinedMessage.includes("INVALID_EMAIL") || code === "auth/invalid-email") return "Lütfen geçerli bir e-posta adresi yazın.";
   if (combinedMessage.includes("WEAK_PASSWORD") || code === "auth/weak-password") return "Şifre en az 6 karakter olmalı.";
-  if (combinedMessage.includes("TOO_MANY_ATTEMPTS_TRY_LATER") || code === "auth/too-many-requests") return "Çok fazla deneme yapıldı. Lütfen biraz sonra tekrar deneyin.";
+  if (combinedMessage.includes("TOO_MANY_ATTEMPTS_TRY_LATER") || code === "auth/too-many-requests") return "Güvenlik nedeniyle kısa bir gönderim molası verildi. 15-30 dakika sonra tek kez tekrar deneyin.";
   if (code === "auth/network-request-failed") return "Bağlantı hatası. İnternet bağlantınızı kontrol edin.";
-  if (code === "auth/requires-recent-login") return "Bu işlem için kimliğinizi tekrar doğrulamanız gerekir.";
+  if (code === "auth/requires-recent-login" || code === "auth/credential-too-old-login-again") return "E-posta değiştirmek için mevcut şifrenizi Şifre alanına yazıp tekrar Kaydet'e basın. Gerekirse çıkış yapıp yeniden giriş yapın.";
   if (code === "auth/user-token-expired") return "Oturum süresi doldu. Lütfen tekrar giriş yapın.";
   if (code === "auth/expired-action-code") return "Bu doğrulama bağlantısının süresi dolmuş. Lütfen yeni bir bağlantı isteyin.";
   if (code === "auth/invalid-action-code") return "Bu doğrulama bağlantısı geçersiz veya daha önce kullanılmış.";

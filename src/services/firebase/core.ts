@@ -19,7 +19,8 @@ import {
   signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
-  signOut
+  signOut,
+  verifyBeforeUpdateEmail
 } from "firebase/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
@@ -300,6 +301,35 @@ export async function sendEmailVerification(user: User = firebaseAuth.currentUse
   }
 
   return firebaseSendEmailVerification(user, {
+    url: APP_WEB_ORIGIN,
+    handleCodeInApp: false
+  });
+}
+
+export async function requestEmailChange(
+  nextEmail: string,
+  currentPassword?: string,
+  user: User = firebaseAuth.currentUser as User
+): Promise<void> {
+  if (!user) {
+    throw new Error("E-posta değiştirmek için oturum açmış kullanıcı bulunamadı.");
+  }
+
+  const normalizedEmail = nextEmail.trim().toLowerCase();
+  if (!normalizedEmail || normalizedEmail === user.email?.trim().toLowerCase()) {
+    if (!user.emailVerified) await sendEmailVerification(user);
+    return;
+  }
+
+  const usesPassword = user.providerData.some((provider) => provider.providerId === "password");
+  if (usesPassword && currentPassword?.trim() && user.email) {
+    await reauthenticateWithCredential(
+      user,
+      EmailAuthProvider.credential(user.email, currentPassword)
+    );
+  }
+
+  await verifyBeforeUpdateEmail(user, normalizedEmail, {
     url: APP_WEB_ORIGIN,
     handleCodeInApp: false
   });

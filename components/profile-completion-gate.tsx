@@ -108,14 +108,14 @@ const texts: Record<Language, {
 };
 
 export function ProfileCompletionGate() {
-  const { account, isAuthenticated, isEmailVerified, needsProfileCompletion, profileHydrated, saveAccountProfile } = useAccount();
+  const { account, isAuthenticated, needsProfileCompletion, profileHydrated, saveAccountProfile } = useAccount();
   const { language, hasChosenLanguage, isLanguageReady } = useLanguage();
   const { hasAcceptedLegal, isLegalReady } = useLegal();
   const { theme, isThemeReady } = useAppTheme();
   const colors = getThemeColors(theme);
   const styles = useMemo(() => createStyles(), []);
   const copy = texts[language];
-  const eligible = isAuthenticated && isEmailVerified && profileHydrated && needsProfileCompletion && isThemeReady
+  const eligible = isAuthenticated && profileHydrated && needsProfileCompletion && isThemeReady
     && isLanguageReady && hasChosenLanguage && isLegalReady && hasAcceptedLegal;
   const [themeStepReady, setThemeStepReady] = useState(false);
   const [themeSelected, setThemeSelected] = useState(false);
