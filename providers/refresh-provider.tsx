@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef } from "react";
+import { InteractionManager } from "react-native";
 import { usePathname } from "expo-router";
 
 type Refresher = () => void | Promise<void>;
@@ -22,7 +23,7 @@ export function RefreshProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const refreshers = useRef(new Set<RegisteredRefresher>());
   const lastRun = useRef(0);
-  const running = useRef(false);
+  const inFlight = useRef<Promise<void> | null>(null);
 
   const registerRefresher = useCallback((fn: Refresher, scopes: string[]) => {
     const entry = { fn, scopes };
@@ -32,18 +33,26 @@ export function RefreshProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(() => {
     const now = Date.now();
-    if (running.current || now - lastRun.current < MIN_REFRESH_GAP_MS) return;
-    running.current = true;
+    if (inFlight.current) return inFlight.current;
+    if (now - lastRun.current < MIN_REFRESH_GAP_MS) return Promise.resolve();
     lastRun.current = now;
-    try {
-      await Promise.allSettled([...refreshers.current]
-        .filter((entry) => entry.scopes.some((scope) => pathname === scope || pathname.startsWith(`${scope}/`)))
-        .map((entry) => Promise.resolve().then(entry.fn)));
-    } finally {
-      running.current = false;
-    }
+    const entries = [...refreshers.current]
+      .filter((entry) => entry.scopes.some((scope) => pathname === scope || pathname.startsWith(`${scope}/`)));
+    const refresh = new Promise<void>((resolve) => {
+      InteractionManager.runAfterInteractions(() => {
+        void entries.reduce<Promise<void>>((chain, entry, index) => chain.then(async () => {
+          await Promise.allSettled([Promise.resolve().then(entry.fn)]);
+          if (index < entries.length - 1) await new Promise<void>((next) => requestAnimationFrame(() => next()));
+        }), Promise.resolve()).finally(resolve);
+      });
+    });
+    inFlight.current = refresh;
+    void refresh.finally(() => {
+      if (inFlight.current === refresh) inFlight.current = null;
+    });
+    return refresh;
   }, [pathname]);
 
   const value = useMemo(() => ({ registerRefresher, refreshAll }), [registerRefresher, refreshAll]);

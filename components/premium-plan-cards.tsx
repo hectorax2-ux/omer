@@ -58,8 +58,8 @@ export function PremiumPlanCards({ products, language, theme, purchasingId, disa
                 ) : (
                   <View style={styles.badgeSpacer} />
                 )}
-                <Text style={styles.duration} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
-                  {t(product.duration, language)}
+                <Text style={styles.duration} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.72}>
+                  {t(product.name, language)}
                 </Text>
                 <Text
                   style={styles.price}
@@ -70,7 +70,7 @@ export function PremiumPlanCards({ products, language, theme, purchasingId, disa
                   {product.priceLabel}
                 </Text>
                 <Text style={styles.planName} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>
-                  {t(product.name, language)}
+                  {t(product.perk, language)}
                 </Text>
                 <Pressable
                   onPress={() => onSelect(product.id)}

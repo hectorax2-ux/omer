@@ -52,9 +52,8 @@ export function peekLargestResourceArray<T>(prefix: string) {
 }
 
 export async function loadResourceCache<T>(key: string, validate: (value: unknown) => value is T): Promise<T | null> {
-  const policy = resourceCachePolicy(key);
   const memory = memoryCache.get(key);
-  if (memory && Date.now() - memory.savedAt <= policy.diskAgeMs && validate(memory.value)) {
+  if (memory && validate(memory.value)) {
     memory.lastAccessedAt = Date.now();
     return memory.value as T;
   }
@@ -66,7 +65,7 @@ export async function loadResourceCache<T>(key: string, validate: (value: unknow
     .then((raw) => {
       if (!raw) return null;
       const stored = JSON.parse(raw) as StoredResource<unknown>;
-      if (stored.schemaVersion !== SCHEMA_VERSION || Date.now() - stored.savedAt > policy.diskAgeMs || !validate(stored.value)) {
+      if (stored.schemaVersion !== SCHEMA_VERSION || !validate(stored.value)) {
         void AsyncStorage.removeItem(`${CACHE_PREFIX}${key}`).catch(() => undefined);
         return null;
       }

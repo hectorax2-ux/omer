@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -28,14 +29,15 @@ export type HomeActionItem = {
   onPress: () => void;
 };
 
-export function QuickDiscovery({ theme, title, items, accent = v2Colors.cyan, variant = "grid" }: { theme: AppTheme; title: string; items: HomeActionItem[]; accent?: string; variant?: "grid" | "games" }) {
-  const { width } = useWindowDimensions();
-  const styles = createStyles(theme);
+export const QuickDiscovery = memo(function QuickDiscovery({ theme, title, items, accent = v2Colors.cyan, variant = "grid" }: { theme: AppTheme; title: string; items: HomeActionItem[]; accent?: string; variant?: "grid" | "games" }) {
+  const { fontScale, width } = useWindowDimensions();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const columns = width >= homeLayout.tabletMinWidth ? 3 : 2;
   const gap = width < 360 ? 10 : 12;
   const screenPadding = width < 360 ? 32 : width >= homeLayout.tabletMinWidth ? 56 : 36;
   const availableWidth = Math.min(width, homeLayout.tabletContentMaxWidth) - screenPadding;
   const tileWidth = Math.floor((availableWidth - gap * (columns - 1)) / columns);
+  const normalizedFontScale = Math.min(fontScale, 1.25);
   return (
     <View style={styles.section}>
       {title ? <SectionHeading theme={theme} title={title} accent={accent} /> : null}
@@ -50,18 +52,20 @@ export function QuickDiscovery({ theme, title, items, accent = v2Colors.cyan, va
               width={variant === "games" && index % 3 === 0 ? availableWidth : tileWidth}
               gameCard={variant === "games"}
               compactGameCard={compactGameCard}
+              height={(variant === "games" ? 104 : 156) + Math.ceil((normalizedFontScale - 1) * (variant === "games" ? 48 : 80))}
             />
           );
         })}
       </View>
     </View>
   );
-}
+});
 
-function ArtworkActionCard({ item, styles, width, gameCard, compactGameCard }: {
+function ArtworkActionCard({ item, styles, width, height, gameCard, compactGameCard }: {
   item: HomeActionItem;
   styles: ReturnType<typeof createStyles>;
   width: number;
+  height: number;
   gameCard: boolean;
   compactGameCard: boolean;
 }) {
@@ -76,10 +80,10 @@ function ArtworkActionCard({ item, styles, width, gameCard, compactGameCard }: {
       scaleTo={0.975}
       dimTo={0.99}
       wrapStyle={[styles.actionShadow, { width }, accentShadow(item.accent)]}
-      style={[styles.actionCard, gameCard && styles.gameCard, compactGameCard && styles.compactGameCard, accentSurface(item.accent)]}
+      style={[styles.actionCard, gameCard && styles.gameCard, compactGameCard && styles.compactGameCard, { height }, accentSurface(item.accent)]}
       accessibilityLabel={`${item.title}. ${item.subtitle}`}
     >
-      <HomeImage uri={item.image} imageFocus={item.imageFocus} style={styles.actionArtwork} contentFit="cover" transition={220} showFallbackIcon={false} />
+      <HomeImage uri={item.image} imageFocus={item.imageFocus} style={styles.actionArtwork} contentFit="cover" transition={180} showFallbackIcon={false} imageVariant="thumbnail" />
       <View style={[StyleSheet.absoluteFill, accentWash(item.accent)]} pointerEvents="none" />
       <LinearGradient
         colors={actionGradient(item.accent)}
@@ -146,7 +150,7 @@ export function DailyChallengeCard({ theme, challenge, onPress }: { theme: AppTh
       <PressableScale onPress={onPress} accessibilityLabel={`${challengeTitle(challenge, language)}. ${t(homeCopy.startChallenge, language)}`}>
         <LinearGradient colors={["#4B3FA8", "#783DA1", "#9A3C75"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.challenge}>
           <View style={styles.challengeIcon}>
-            {challenge.artwork?.image ? <HomeImage uri={challenge.artwork.image} style={styles.challengeImage} contentFit="cover" /> : <Ionicons name={challenge.icon} size={29} color="#FFF1BE" />}
+            {challenge.artwork?.image ? <HomeImage uri={challenge.artwork.image} style={styles.challengeImage} contentFit="cover" imageVariant="thumbnail" /> : <Ionicons name={challenge.icon} size={29} color="#FFF1BE" />}
           </View>
           <View style={styles.challengeBody}>
             <Text style={styles.challengeEyebrow}>{t(homeCopy.dailyMission, language)}</Text>
@@ -326,16 +330,16 @@ function createStyles(theme: AppTheme) {
   return StyleSheet.create({
     section: { marginTop: 24 },
     actionRail: { flexDirection: "row", flexWrap: "wrap" },
-    actionShadow: { shadowOpacity: 0.22, shadowRadius: 11, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
-    actionCard: { minHeight: 122, borderRadius: radii.lg, padding: 15, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", position: "relative" },
-    gameCard: { minHeight: 96, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
+    actionShadow: { shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+    actionCard: { borderRadius: radii.lg, padding: 15, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", position: "relative" },
+    gameCard: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
     compactGameCard: { paddingHorizontal: 11, gap: 8 },
     actionArtwork: { ...StyleSheet.absoluteFillObject, transform: [{ scale: 1.035 }] },
     actionIllumination: { position: "absolute", right: -18, top: -30, width: 96, height: 96, borderRadius: 48 },
     actionTopEdge: { position: "absolute", top: 0, left: 18, right: 18, height: 1, backgroundColor: "rgba(255,255,255,0.2)" },
     actionIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center", shadowOpacity: 0.24, shadowRadius: 7, shadowOffset: { width: 0, height: 0 }, elevation: 2 },
     compactGameIcon: { width: 34, height: 34, borderRadius: 17, flexShrink: 0 },
-    actionTextBlock: { flex: 1, flexShrink: 1, minWidth: 0, maxWidth: "100%", marginTop: 10, paddingRight: 27 },
+    actionTextBlock: { flex: 1, flexShrink: 1, minWidth: 0, maxWidth: "100%", marginTop: 8, paddingRight: 27, overflow: "hidden" },
     gameTextBlock: { marginTop: 0 },
     actionTitle: { ...safeTextLayout, color: "#FFF9F0", fontSize: 15.5, lineHeight: 20, fontWeight: "800" },
     compactGameTextBlock: { paddingRight: 0 },

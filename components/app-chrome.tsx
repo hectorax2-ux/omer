@@ -1,5 +1,5 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, FlatList, GestureResponderEvent, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, RefreshControl, ScrollView, StyleProp, StyleSheet, Text, TextInput, useWindowDimensions, View, ViewStyle } from "react-native";
+import { memo, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Easing, FlatList, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleProp, StyleSheet, Text, TextInput, useWindowDimensions, View, ViewStyle } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -46,6 +46,10 @@ export type AppChromeVirtualizedItem = {
   content: ReactNode;
 };
 
+const VirtualizedSection = memo(function VirtualizedSection({ item }: { item: AppChromeVirtualizedItem }) {
+  return <View>{item.content}</View>;
+});
+
 type Props = {
   title: string;
   eyebrow?: string;
@@ -78,12 +82,9 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const [searchOpen, setSearchOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const [pullDistance, setPullDistance] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const virtualizedRef = useRef<FlatList<AppChromeVirtualizedItem>>(null);
-  const scrollYRef = useRef(0);
-  const touchStartYRef = useRef<number | null>(null);
   const { language } = useLanguage();
   const accessibilityCopy = chromeAccessibilityCopy(language);
   const { theme } = useAppTheme();
@@ -190,43 +191,17 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
     viewabilityCallbackRef.current?.(viewableItems.map(({ item }) => item.key));
   }).current;
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 8, minimumViewTime: 80 }).current;
+  const renderVirtualizedItem = useCallback(({ item }: { item: AppChromeVirtualizedItem }) => <VirtualizedSection item={item} />, []);
 
   async function refreshPage() {
     if (refreshing) return;
     setRefreshing(true);
-    setPullDistance(0);
     try {
       await refreshAll();
       setRefreshVersion((value) => value + 1);
     } finally {
       setRefreshing(false);
     }
-  }
-
-  function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    scrollYRef.current = event.nativeEvent.contentOffset.y;
-  }
-
-  function handleTouchStart(event: GestureResponderEvent) {
-    touchStartYRef.current = event.nativeEvent.pageY;
-  }
-
-  function handleTouchMove(event: GestureResponderEvent) {
-    if (!scroll || refreshing || scrollYRef.current > 4 || touchStartYRef.current === null) return;
-    const distance = Math.max(0, event.nativeEvent.pageY - touchStartYRef.current);
-    if (distance > 10) {
-      const next = Math.min(distance, 86);
-      setPullDistance((current) => Math.abs(current - next) >= 4 ? next : current);
-    }
-  }
-
-  function handleTouchEnd() {
-    if (pullDistance > 58) {
-      void refreshPage();
-      return;
-    }
-    setPullDistance(0);
-    touchStartYRef.current = null;
   }
 
   return (
@@ -287,21 +262,15 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
           <FlatList
             ref={virtualizedRef}
             data={virtualizedItems as AppChromeVirtualizedItem[]}
-            renderItem={({ item }) => <View key={`${item.key}:${refreshVersion}`}>{item.content}</View>}
+            renderItem={renderVirtualizedItem}
             keyExtractor={(item) => item.key}
             style={styles.content}
             contentContainerStyle={[styles.contentContainer, { paddingHorizontal: horizontalPadding, paddingBottom: contentBottomPadding }]}
             showsVerticalScrollIndicator={false}
-            onScroll={handleScroll}
             onScrollBeginDrag={beginScrollPerformanceLock}
             onScrollEndDrag={endScrollPerformanceLock}
             onMomentumScrollBegin={beginScrollPerformanceLock}
             onMomentumScrollEnd={endScrollPerformanceLock}
-            scrollEventThrottle={32}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            onTouchCancel={handleTouchEnd}
             keyboardShouldPersistTaps="handled"
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshPage} tintColor={chromeAccent} colors={[chromeAccent]} progressBackgroundColor={themeColors.panel} />}
             initialNumToRender={virtualizedInitialNumToRender}
@@ -312,12 +281,6 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
             onViewableItemsChanged={handleViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
             onScrollToIndexFailed={({ index }) => requestAnimationFrame(() => virtualizedRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 }))}
-            ListHeaderComponent={scroll && (pullDistance > 12 || refreshing) ? (
-              <View style={[styles.pullHint, { opacity: refreshing ? 1 : Math.min(1, pullDistance / 70) }]}>
-                <Ionicons name="refresh" size={16} color={chromeAccent} />
-                <Text style={[styles.pullHintText, { color: chromeAccent }]}>{refreshing ? language === "tr" ? "Yenileniyor" : "Refreshing" : language === "tr" ? "Yenilemek için bırak" : "Release to refresh"}</Text>
-              </View>
-            ) : null}
           />
         ) : (
           <Content
@@ -325,29 +288,17 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
             style={styles.content}
             contentContainerStyle={scroll ? [styles.contentContainer, { paddingHorizontal: horizontalPadding, paddingBottom: contentBottomPadding }] : undefined}
             showsVerticalScrollIndicator={false}
-            onScroll={scroll ? handleScroll : undefined}
             onScrollBeginDrag={scroll ? beginScrollPerformanceLock : undefined}
             onScrollEndDrag={scroll ? endScrollPerformanceLock : undefined}
             onMomentumScrollBegin={scroll ? beginScrollPerformanceLock : undefined}
             onMomentumScrollEnd={scroll ? endScrollPerformanceLock : undefined}
-            scrollEventThrottle={32}
-            onTouchStart={scroll ? handleTouchStart : undefined}
-            onTouchMove={scroll ? handleTouchMove : undefined}
-            onTouchEnd={scroll ? handleTouchEnd : undefined}
-            onTouchCancel={scroll ? handleTouchEnd : undefined}
             bounces
             alwaysBounceVertical={scroll}
             overScrollMode="always"
             keyboardShouldPersistTaps={scroll ? "handled" : undefined}
             refreshControl={scroll ? <RefreshControl refreshing={refreshing} onRefresh={refreshPage} tintColor={chromeAccent} colors={[chromeAccent]} progressBackgroundColor={themeColors.panel} /> : undefined}
           >
-            {scroll && (pullDistance > 12 || refreshing) ? (
-              <View style={[styles.pullHint, { opacity: refreshing ? 1 : Math.min(1, pullDistance / 70) }]}>
-                <Ionicons name="refresh" size={16} color={chromeAccent} />
-                <Text style={[styles.pullHintText, { color: chromeAccent }]}>{refreshing ? language === "tr" ? "Yenileniyor" : "Refreshing" : language === "tr" ? "Yenilemek için bırak" : "Release to refresh"}</Text>
-              </View>
-            ) : null}
-            <View key={refreshVersion} style={!scroll ? styles.staticChild : undefined}>{typeof children === "function" ? children(refreshVersion) : children}</View>
+            <View style={!scroll ? styles.staticChild : undefined}>{typeof children === "function" ? children(refreshVersion) : children}</View>
           </Content>
         )}
       </KeyboardAvoidingView>
@@ -1141,19 +1092,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     padding: 18,
     paddingBottom: 32
-  },
-  pullHint: {
-    minHeight: 34,
-    borderRadius: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    marginBottom: 8
-  },
-  pullHintText: {
-    fontSize: 11,
-    fontWeight: "900"
   },
   floatingActions: {
     position: "absolute",

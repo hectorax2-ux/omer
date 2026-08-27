@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppState } from "react-native";
 import { useAccount } from "@/hooks/use-account";
 import { useArtists } from "@/hooks/use-artists";
@@ -175,10 +175,10 @@ export function useHomeExperience() {
     return () => clearTimeout(timer);
   }, [feed, sessionRecentlyShownIds, uidScope]);
 
-  function recordDiscoveryOpen(kind: "artwork" | "artist" | "story", id: string) {
+  const recordDiscoveryOpen = useCallback((kind: "artwork" | "artist" | "story", id: string) => {
     const exposureId = kind === "artwork" ? id : `${kind}:${id}`;
     void recordHomeExposures(uidScope, feed.dayKey, [exposureId], "opened").catch(() => undefined);
-  }
+  }, [feed.dayKey, uidScope]);
 
   const followedUsernameSet = useMemo(() => new Set(social.following.map(normalizeIdentity).filter(Boolean)), [social.following]);
   const followedUidSet = useMemo(() => new Set(social.followingUids), [social.followingUids]);

@@ -82,22 +82,22 @@ export default function HomeExperienceScreen() {
     return () => task.cancel();
   }, [home.isInitialReady, homeImagePrefetchKey, startupPhase]);
 
-  const quickActions: HomeActionItem[] = [
+  const quickActions = useMemo<HomeActionItem[]>(() => [
     { id: "premium", icon: "diamond", title: "Premium", subtitle: t(homeCopy.premiumSubtitle, language), accent: "gold", image: artworks[4].image, imageFocus: { x: 72, y: 44 }, onPress: () => router.push("/premium") },
     { id: "feed", icon: "newspaper", title: uiCopy.feedDiscover[language], subtitle: t(homeCopy.feedSubtitle, language), accent: "violet", image: artworks[3].image, imageFocus: { x: 68, y: 48 }, onPress: () => router.push("/(tabs)/feed") },
     { id: "gallery", icon: "easel", title: copy.gallery[language], subtitle: t(homeCopy.gallerySubtitle, language), accent: "blue", image: artworks[0].image, imageFocus: { x: 70, y: 42 }, onPress: () => router.push("/(tabs)/gallery") },
     { id: "books", icon: "bookmarks", title: copy.events[language], subtitle: t(homeCopy.eventsSubtitle, language), accent: "pink", image: artworks[2].image, imageFocus: { x: 70, y: 38 }, onPress: () => router.push("/(tabs)/events") },
     { id: "stories", icon: "document-text", title: uiCopy.artArticles[language], subtitle: t(homeCopy.articlesSubtitle, language), accent: "violet", image: artworks[9].image, imageFocus: { x: 68, y: 46 }, onPress: () => router.push("/stories") },
     { id: "museum", icon: "albums", title: t(homeCopy.myMuseum, language), subtitle: t(homeCopy.museumSubtitle, language), accent: "blue", image: artworks[7].image, imageFocus: { x: 68, y: 48 }, onPress: () => router.push("/my-museum") }
-  ];
-  const gameActions: HomeActionItem[] = [
+  ], [language, router]);
+  const gameActions = useMemo<HomeActionItem[]>(() => [
     { id: "competition", icon: "color-palette", title: copy.communityArt[language], subtitle: copy.newArtworks[language], accent: "pink", image: artworks[5].image, imageFocus: { x: 72, y: 48 }, onPress: () => router.push("/(tabs)/ranking") },
     { id: "games", icon: "game-controller", title: uiCopy.games[language], subtitle: t(homeCopy.gamesSubtitle, language), accent: "violet", image: artworks[3].image, imageFocus: { x: 72, y: 50 }, onPress: () => router.push("/games") },
     { id: "chance", icon: "sparkles", title: t(homeCopy.chanceCard, language), subtitle: t(homeCopy.chanceSubtitle, language), accent: "gold", image: artworks[6].image, imageFocus: { x: 72, y: 48 }, onPress: () => router.push("/chance-card") },
     { id: "duels", icon: "flash", title: t(homeCopy.seerDuel, language), subtitle: t(homeCopy.duelSubtitle, language), accent: "pink", image: artworks[8].image, imageFocus: { x: 70, y: 45 }, onPress: () => router.push("/duels") },
     { id: "profiles", icon: "compass", title: uiCopy.discover[language], subtitle: uiCopy.discoverSubtitle[language], accent: "blue", image: artworks[2].image, imageFocus: { x: 72, y: 38 }, onPress: () => router.push("/discover") },
     { id: "leaderboards", icon: "bar-chart", title: copy.ranking[language], subtitle: t(homeCopy.rankingSubtitle, language), accent: "violet", image: artworks[1].image, imageFocus: { x: 70, y: 38 }, onPress: () => router.push("/leaderboards") }
-  ];
+  ], [language, router]);
 
   function openStage(stage: JourneyStageView) {
     if (stage.state === "locked") return;
@@ -165,7 +165,7 @@ export default function HomeExperienceScreen() {
 
   return (
     <>
-      <AppChrome title="Art Atlas" showTopAd={false} virtualizedItems={homeItems} virtualizedInitialNumToRender={6} onVirtualizedViewableItemsChanged={handleViewableHomeItems} />
+      <AppChrome title="Art Atlas" showTopAd={false} virtualizedItems={homeItems} virtualizedInitialNumToRender={3} onVirtualizedViewableItemsChanged={handleViewableHomeItems} />
       <ThemePickerModal visible={themePickerOpen} onClose={() => setThemePickerOpen(false)} />
     </>
   );

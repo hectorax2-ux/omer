@@ -3,14 +3,12 @@ import type { HomeCachedEnvelope, HomeExposure, HomeFeedModel, JourneyProgress }
 
 const CACHE_PREFIX = "art-atlas:home-v2";
 const MAX_EXPOSURES = 120;
-const MAX_CACHE_AGE_MS = 48 * 60 * 60 * 1000;
 
 export async function loadHomeFeedCache(uidScope: string) {
   const raw = await AsyncStorage.getItem(`${CACHE_PREFIX}:feed:${uidScope}`);
   if (!raw) return null;
   const parsed = safeJson<HomeCachedEnvelope>(raw);
   if (!parsed || parsed.schemaVersion !== 1 || parsed.uidScope !== uidScope) return null;
-  if (Date.now() - parsed.savedAt > MAX_CACHE_AGE_MS) return null;
   return parsed.feed;
 }
 

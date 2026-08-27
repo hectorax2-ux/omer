@@ -109,7 +109,7 @@ export function usePremiumProductsIap(language: Language) {
           });
         }
 
-        updateAccount({ isPremium: true });
+        updateAccount({ isPremium: true, premiumExpiresAt: activation.expiresAt });
         const resolvedPlan = premiumPlanForProduct(purchase.productId, basePlanId);
         if (Platform.OS === "android" && resolvedPlan) setCurrentAndroidPlan(resolvedPlan);
         console.info("[Premium Store] Firebase premium activation completed.", {

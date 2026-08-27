@@ -75,6 +75,7 @@ export type Account = {
   role: MemberRole;
   isAdmin: boolean;
   isPremium: boolean;
+  premiumExpiresAt?: string;
   isSuspended: boolean;
   badges: BadgeId[];
   staffBadges: ("moderator" | "editor")[];
@@ -134,6 +135,7 @@ const initialAccount: Account = {
   role: "art_lover",
   isAdmin: false,
   isPremium: false,
+  premiumExpiresAt: undefined,
   isSuspended: false,
   badges: [],
   staffBadges: [],
@@ -915,6 +917,7 @@ function accountFromProfile(profile: FirebaseUserProfile): Account {
     role: mapFirebaseRole(profile.appRole ?? (profile.role === "admin" ? "art_lover" : profile.role)),
     isAdmin: profile.role === "admin",
     isPremium: isPremiumProfileActive(profile),
+    premiumExpiresAt: profile.expireDate?.toDate().toISOString(),
     isSuspended: Boolean(profile.isDisabled),
     badges,
     email: profile.email,

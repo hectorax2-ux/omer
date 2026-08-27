@@ -63,10 +63,10 @@ export const PREMIUM_PRODUCT_CATALOG: PremiumProductDefinition[] = [
     plan: "monthly",
     badge: null,
     name: {
-      tr: "Aylık",
-      en: "Monthly",
-      ru: "Месяц",
-      uz: "Oylik"
+      tr: "1 Aylık Premium",
+      en: "1-Month Premium",
+      ru: "Premium на 1 месяц",
+      uz: "1 oylik Premium"
     },
     duration: {
       tr: "1 ay",
@@ -75,10 +75,10 @@ export const PREMIUM_PRODUCT_CATALOG: PremiumProductDefinition[] = [
       uz: "1 oy"
     },
     perk: {
-      tr: "Esnek başlangıç",
-      en: "Flexible start",
-      ru: "Гибкий старт",
-      uz: "Moslashuvchan boshlash"
+      tr: "Tüm Premium ayrıcalıkları",
+      en: "All Premium benefits",
+      ru: "Все преимущества Premium",
+      uz: "Barcha Premium imtiyozlari"
     }
   },
   {
@@ -86,10 +86,10 @@ export const PREMIUM_PRODUCT_CATALOG: PremiumProductDefinition[] = [
     plan: "quarterly",
     badge: "popular",
     name: {
-      tr: "3 Aylık",
-      en: "3 Months",
-      ru: "3 месяца",
-      uz: "3 oy"
+      tr: "3 Aylık Premium",
+      en: "3-Month Premium",
+      ru: "Premium на 3 месяца",
+      uz: "3 oylik Premium"
     },
     duration: {
       tr: "3 ay",
@@ -98,21 +98,21 @@ export const PREMIUM_PRODUCT_CATALOG: PremiumProductDefinition[] = [
       uz: "3 oy"
     },
     perk: {
-      tr: "Daha uzun keyif",
-      en: "More time to enjoy",
-      ru: "Больше времени",
-      uz: "Ko'proq vaqt"
+      tr: "Tüm Premium ayrıcalıkları",
+      en: "All Premium benefits",
+      ru: "Все преимущества Premium",
+      uz: "Barcha Premium imtiyozlari"
     }
   },
   {
     id: "com.artatlas.app.premium.yearly",
     plan: "yearly",
-    badge: "best",
+    badge: null,
     name: {
-      tr: "Yıllık",
-      en: "Yearly",
-      ru: "Год",
-      uz: "Yillik"
+      tr: "Yıllık Premium",
+      en: "Yearly Premium",
+      ru: "Premium на год",
+      uz: "Yillik Premium"
     },
     duration: {
       tr: "12 ay",
@@ -121,10 +121,10 @@ export const PREMIUM_PRODUCT_CATALOG: PremiumProductDefinition[] = [
       uz: "12 oy"
     },
     perk: {
-      tr: "En avantajlı plan",
-      en: "Best value plan",
-      ru: "Самый выгодный план",
-      uz: "Eng foydali reja"
+      tr: "Tüm Premium ayrıcalıkları",
+      en: "All Premium benefits",
+      ru: "Все преимущества Premium",
+      uz: "Barcha Premium imtiyozlari"
     }
   }
 ];
