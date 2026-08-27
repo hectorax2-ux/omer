@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-na
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { collection, getDocs, limit, query, where } from "firebase/firestore";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
@@ -53,7 +54,7 @@ export default function RecommendationsScreen() {
       {featuredFilm ? (
         <View style={styles.filmHero}>
           {featuredFilm.image ? <Image source={imageSource(featuredFilm.image, "large")} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" allowDownscaling /> : null}
-          <LinearGradient colors={["rgba(5,8,18,0.1)", "rgba(7,10,18,0.65)", "#070A12"]} style={StyleSheet.absoluteFill} />
+          <ClippedGradient colors={["rgba(5,8,18,0.1)", "rgba(7,10,18,0.65)", "#070A12"]} androidColors={["rgba(7,10,18,0.16)", "#070A12"]} radius={radii.xl} />
           <View style={styles.filmGlow} pointerEvents="none" />
           <Text style={styles.heroEyebrow}>{filmLabel(language)}</Text>
           <Text style={styles.heroTitle} numberOfLines={3}>{featuredFilm.title[language]}</Text>
@@ -136,16 +137,16 @@ function createStyles(width: number) {
     bookShelf: { flexDirection: "row", alignItems: "flex-end", gap: compact ? 8 : 10, minHeight: compact ? 170 : 192 },
     bookObject: { flex: 1, minWidth: 0, aspectRatio: 0.68, borderRadius: radii.md, overflow: "hidden", position: "relative", backgroundColor: v2Colors.elevated, shadowColor: "#000", shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
     bookRaised: { transform: [{ translateY: -10 }, { rotate: "1.5deg" }] },
-    bookCover: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center" },
-    bookScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: "55%" },
+    bookCover: { flex: 1, width: "100%", borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
+    bookScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: "55%", borderBottomLeftRadius: radii.md, borderBottomRightRadius: radii.md },
     bookTitle: { position: "absolute", left: 9, right: 7, bottom: 23, color: v2Colors.text, fontSize: compact ? 10.5 : 12, lineHeight: compact ? 13 : 15, fontWeight: "800" },
     bookAuthor: { position: "absolute", left: 9, right: 7, bottom: 8, color: v2Colors.textMuted, fontSize: 8.5, fontWeight: "600" },
     mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
     mediaItem: { width: "48%", flexGrow: 1, flexBasis: compact ? "46%" : "47%", minWidth: 0, marginBottom: 8 },
     poster: { width: "100%", aspectRatio: 0.72, borderRadius: radii.lg, overflow: "hidden", backgroundColor: v2Colors.elevated },
     coverRatio: { aspectRatio: 0.68 },
-    fallback: { alignItems: "center", justifyContent: "center" },
-    posterScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: "45%" },
+    fallback: { borderRadius: radii.lg, alignItems: "center", justifyContent: "center" },
+    posterScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: "45%", borderBottomLeftRadius: radii.lg, borderBottomRightRadius: radii.lg },
     typeOrb: { position: "absolute", right: 9, bottom: 9, width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(99,102,241,0.72)", alignItems: "center", justifyContent: "center" },
     mediaTitleSlot: { marginTop: 8 },
     mediaTitle: { color: v2Colors.text, fontSize: 14, lineHeight: 18, fontWeight: "800" },

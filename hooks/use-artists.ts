@@ -37,7 +37,7 @@ export function mapArtistDocument(document: ArtistDocument): Artist {
   };
 }
 
-export function useArtists(maxResults = 100) {
+export function useArtists(maxResults = 100, enabled = true) {
   const cacheKey = `artists:${maxResults}`;
   const initialCached = peekResourceCache<Artist[]>(cacheKey) ?? peekLargestResourceArray<Artist>("artists:");
   const initial = (initialCached ?? bundledArtists).slice(0, maxResults);
@@ -46,15 +46,18 @@ export function useArtists(maxResults = 100) {
   const [error, setError] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const lastFocusRefreshAt = useRef(Date.now());
+  const retry = useCallback(() => setRefreshCounter((value) => value + 1), []);
 
-  useRegisterRefresh(() => setRefreshCounter((value) => value + 1));
+  useRegisterRefresh(retry);
   useFocusEffect(useCallback(() => {
+    if (!enabled) return;
     if (Date.now() - lastFocusRefreshAt.current < 2 * 60 * 1000) return;
     lastFocusRefreshAt.current = Date.now();
     setRefreshCounter((value) => value + 1);
-  }, []));
+  }, [enabled]));
 
   useEffect(() => {
+    if (!enabled) return undefined;
     let mounted = true;
     let hasCachedData = false;
     const memoryResource = peekResourceCache<Artist[]>(cacheKey) ?? peekLargestResourceArray<Artist>("artists:");
@@ -105,9 +108,9 @@ export function useArtists(maxResults = 100) {
     return () => {
       mounted = false;
     };
-  }, [cacheKey, maxResults, refreshCounter]);
+  }, [cacheKey, enabled, maxResults, refreshCounter]);
 
-  return { artists: remoteArtists, loading, error, isRemote: remoteArtists.length > 0 };
+  return { artists: remoteArtists, loading, error, retry, isRemote: remoteArtists.length > 0 };
 }
 
 export function useArtist(id?: string) {

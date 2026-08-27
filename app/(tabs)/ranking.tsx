@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -259,7 +259,7 @@ export default function CommunityArtScreen() {
       ) : null}
 
       <View style={styles.competitionHero}>
-        <LinearGradient colors={["#312E81", "#6D28D9", "#9D174D"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+        <ClippedGradient colors={["#312E81", "#6D28D9", "#9D174D"]} androidColors={["#29255F", "#612552"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} radius={radii.xl} />
         <View style={styles.heroGlow} pointerEvents="none" />
         <View style={styles.heroCopy}>
           <Text style={styles.heroKicker}>{language === "tr" ? "AKTİF YARIŞMA" : language === "ru" ? "АКТИВНЫЙ КОНКУРС" : language === "uz" ? "FAOL TANLOV" : "ACTIVE COMPETITION"}</Text>

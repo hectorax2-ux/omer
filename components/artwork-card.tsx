@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { CoverImage } from "@/components/cover-image";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { Artwork } from "@/types/content";
 import { colors } from "@/constants/theme";
 import { copy } from "@/data/content";
@@ -15,7 +15,7 @@ export function ArtworkCard({ artwork, large = false, onPress }: { artwork: Artw
   const content = (
     <>
       <CoverImage source={{ uri: artwork.image }} style={styles.image} imageFocus={artwork.imageFocus} imageVariant="card" transition={300} />
-      <LinearGradient colors={["transparent", "rgba(16, 16, 15, 0.88)"]} style={styles.gradient} />
+      <ClippedGradient colors={["transparent", "rgba(16, 16, 15, 0.88)"]} androidColors={["rgba(16,16,15,0.04)", "rgba(16,16,15,0.9)"]} radius={8} style={styles.gradient} />
       <View style={styles.meta}>
         <Text style={styles.period}>{artwork.period[language]} · {artwork.year}</Text>
         <Text style={[styles.title, { fontSize: titleSize }]} numberOfLines={2} adjustsFontSizeToFit>{artwork.title[language]}</Text>

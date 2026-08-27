@@ -1,4 +1,4 @@
-import { countryCommunities } from "@/data/content";
+import { countryOptions } from "@/utils/country-options";
 
 export function normalizeCountryInput(value: string) {
   return value
@@ -17,7 +17,7 @@ export function findCountryByInput(value: string) {
     return null;
   }
 
-  return countryCommunities.find((country) => {
+  return countryOptions.find((country) => {
     const names = [
       country.code,
       country.id,
@@ -52,7 +52,7 @@ export function resolveCountryCodeFromUser(user?: { country?: string; countryId?
   if (!user) return null;
   if (user.countryCode?.trim()) return user.countryCode.trim().toUpperCase();
   if (user.countryId) {
-    const match = countryCommunities.find((country) => country.id === user.countryId);
+    const match = countryOptions.find((country) => country.id === user.countryId);
     if (match) return match.code;
   }
   return resolveCountryCode(user.country);

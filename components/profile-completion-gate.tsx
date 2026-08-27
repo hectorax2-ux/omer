@@ -1,9 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import {
   DISPLAY_NAME_MAX_LENGTH,
   DISPLAY_NAME_MIN_LENGTH,
@@ -16,14 +16,16 @@ import {
 } from "@/constants/account-limits";
 import { getThemeColors } from "@/constants/theme";
 import { ThemePickerModal } from "@/components/theme-picker-modal";
-import { artists, countryCommunities } from "@/data/content";
 import { useAccount } from "@/hooks/use-account";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useArtists } from "@/hooks/use-artists";
 import { useLanguage } from "@/hooks/use-language";
 import { useLegal } from "@/hooks/use-legal";
 import { Language } from "@/types/content";
 import { uploadFormatHint, validatePickedImageAsset } from "@/utils/image-upload-validation";
 import { imageSource } from "@/utils/image-source";
+import { findCountryByInput, normalizeCountryInput } from "@/utils/country-utils";
+import { countryOptions } from "@/utils/country-options";
 
 const THEME_ONBOARDING_VERSION = "1";
 
@@ -40,6 +42,11 @@ const texts: Record<Language, {
   artistAction: string;
   artistTitle: string;
   artistHint: string;
+  searchCountry: string;
+  searchArtist: string;
+  noResults: string;
+  artistsUnavailable: string;
+  retry: string;
   username: string;
   usernameHint: string;
   name: string;
@@ -59,6 +66,7 @@ const texts: Record<Language, {
     required: "Zorunlu", optional: "İsteğe bağlı", photo: "Profil fotoğrafı", photoAction: "Galeriden seç",
     removePhoto: "Fotoğrafı sil", artistAction: "Sanatçılardan seç", artistTitle: "Bir sanatçı seç",
     artistHint: "Sevdiğin sanatçının görselini profil fotoğrafın yapabilirsin.", username: "Kullanıcı adı",
+    searchCountry: "Ülke ara", searchArtist: "Sanatçı ara", noResults: "Sonuç bulunamadı.", artistsUnavailable: "Sanatçılar şu anda yüklenemedi.", retry: "Tekrar dene",
     usernameHint: "Harf, rakam, nokta, alt çizgi veya kısa çizgi", name: "Gerçek isim", country: "Ülke",
     countryPlaceholder: "Ülkeni seç", countryRequired: "Devam etmek için listeden ülkeni seç.", save: "Profili tamamla",
     saving: "Profil kaydediliyor...", usernameInvalid: `Kullanıcı adı ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} karakter olmalı.`,
@@ -72,6 +80,7 @@ const texts: Record<Language, {
     required: "Required", optional: "Optional", photo: "Profile photo", photoAction: "Choose from gallery",
     removePhoto: "Remove photo", artistAction: "Choose an artist", artistTitle: "Choose an artist",
     artistHint: "You can use the image of an artist you love as your profile photo.", username: "Username",
+    searchCountry: "Search countries", searchArtist: "Search artists", noResults: "No results found.", artistsUnavailable: "Artists could not be loaded right now.", retry: "Try again",
     usernameHint: "Letters, numbers, dots, underscores, or hyphens", name: "Real name", country: "Country",
     countryPlaceholder: "Choose your country", countryRequired: "Choose your country from the list to continue.", save: "Complete profile",
     saving: "Saving profile...", usernameInvalid: `Username must be ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} characters.`,
@@ -85,6 +94,7 @@ const texts: Record<Language, {
     required: "Обязательно", optional: "Необязательно", photo: "Фото профиля", photoAction: "Выбрать из галереи",
     removePhoto: "Удалить фото", artistAction: "Выбрать художника", artistTitle: "Выберите художника",
     artistHint: "Изображение любимого художника можно использовать как фото профиля.", username: "Имя пользователя",
+    searchCountry: "Поиск страны", searchArtist: "Поиск художника", noResults: "Ничего не найдено.", artistsUnavailable: "Не удалось загрузить художников.", retry: "Повторить",
     usernameHint: "Буквы, цифры, точки, подчёркивания или дефисы", name: "Настоящее имя", country: "Страна",
     countryPlaceholder: "Выберите страну", countryRequired: "Чтобы продолжить, выберите страну из списка.", save: "Завершить профиль",
     saving: "Профиль сохраняется...", usernameInvalid: `Имя пользователя должно содержать ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} символов.`,
@@ -98,6 +108,7 @@ const texts: Record<Language, {
     required: "Majburiy", optional: "Ixtiyoriy", photo: "Profil rasmi", photoAction: "Galereyadan tanlash",
     removePhoto: "Rasmni o‘chirish", artistAction: "Rassomlardan tanlash", artistTitle: "Rassomni tanlang",
     artistHint: "Sevimli rassomingiz tasvirini profil rasmi sifatida ishlatishingiz mumkin.", username: "Foydalanuvchi nomi",
+    searchCountry: "Mamlakat qidirish", searchArtist: "Rassom qidirish", noResults: "Natija topilmadi.", artistsUnavailable: "Rassomlarni hozir yuklab bo‘lmadi.", retry: "Qayta urinish",
     usernameHint: "Harflar, raqamlar, nuqta, pastki chiziq yoki tire", name: "Haqiqiy ism", country: "Mamlakat",
     countryPlaceholder: "Mamlakatingizni tanlang", countryRequired: "Davom etish uchun ro‘yxatdan mamlakatingizni tanlang.", save: "Profilni yakunlash",
     saving: "Profil saqlanmoqda...", usernameInvalid: `Foydalanuvchi nomi ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} belgidan iborat bo‘lishi kerak.`,
@@ -112,6 +123,7 @@ export function ProfileCompletionGate() {
   const { language, hasChosenLanguage, isLanguageReady } = useLanguage();
   const { hasAcceptedLegal, isLegalReady } = useLegal();
   const { theme, isThemeReady } = useAppTheme();
+  const { width } = useWindowDimensions();
   const colors = getThemeColors(theme);
   const styles = useMemo(() => createStyles(), []);
   const copy = texts[language];
@@ -127,10 +139,22 @@ export function ProfileCompletionGate() {
   const [selectedArtistId, setSelectedArtistId] = useState<string>();
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
   const [artistPickerOpen, setArtistPickerOpen] = useState(false);
+  const [countryQuery, setCountryQuery] = useState("");
+  const [artistQuery, setArtistQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const selectedCountry = countryCommunities.find((item) => item.name.tr === country);
+  const savingRef = useRef(false);
   const profileVisible = eligible && themeStepReady && themeSelected;
+  const { artists: availableArtists, loading: artistsLoading, error: artistsError, retry: retryArtists } = useArtists(100, profileVisible);
+  const selectedCountry = findCountryByInput(country);
+  const normalizedCountryQuery = normalizeCountryInput(countryQuery);
+  const normalizedArtistQuery = normalizeCountryInput(artistQuery);
+  const filteredCountries = useMemo(() => countryOptions.filter((item) => !normalizedCountryQuery || [item.code, item.name.tr, item.name.en, item.name.ru, item.name.uz]
+    .some((value) => normalizeCountryInput(value).includes(normalizedCountryQuery))), [normalizedCountryQuery]);
+  const filteredArtists = useMemo(() => availableArtists.filter((artist) => artist.image && (!normalizedArtistQuery || Object.values(artist.name)
+    .some((value) => normalizeCountryInput(value).includes(normalizedArtistQuery)))), [availableArtists, normalizedArtistQuery]);
+  const artistColumns = width >= 500 ? 4 : 3;
+  const artistCellWidth = (Math.min(width - 36, 500) - 32 - (artistColumns - 1) * 8) / artistColumns;
 
   useEffect(() => {
     if (!eligible || !account.uid) {
@@ -162,11 +186,19 @@ export function ProfileCompletionGate() {
     setCountry(account.country);
     setAvatar(account.avatar);
     setAvatarRemoved(false);
-    setSelectedArtistId(artists.find((artist) => artist.image === account.avatar)?.id);
+    setSelectedArtistId(undefined);
     setCountryPickerOpen(false);
     setArtistPickerOpen(false);
+    setCountryQuery("");
+    setArtistQuery("");
     setError("");
   }, [account.avatar, account.country, account.displayName, account.uid, account.username, profileVisible]);
+
+  useEffect(() => {
+    if (!profileVisible || !account.avatar) return;
+    const match = availableArtists.find((artist) => artist.image === account.avatar);
+    if (match) setSelectedArtistId((current) => current ?? match.id);
+  }, [account.avatar, availableArtists, profileVisible]);
 
   function completeThemeStep() {
     setThemeSelected(true);
@@ -205,7 +237,7 @@ export function ProfileCompletionGate() {
   }
 
   function chooseArtist(artistId: string) {
-    const artist = artists.find((item) => item.id === artistId);
+    const artist = availableArtists.find((item) => item.id === artistId);
     if (!artist) return;
     setAvatar(artist.image);
     setAvatarRemoved(false);
@@ -215,6 +247,7 @@ export function ProfileCompletionGate() {
   }
 
   async function save() {
+    if (savingRef.current) return;
     const normalizedUsername = normalizeUsername(username);
     const normalizedName = normalizeDisplayName(displayName);
     setError("");
@@ -230,19 +263,22 @@ export function ProfileCompletionGate() {
       setError(copy.nameInvalid);
       return;
     }
-    if (!countryCommunities.some((item) => item.name.tr === country)) {
+    const canonicalCountry = findCountryByInput(country);
+    if (!canonicalCountry) {
       setError(copy.countryRequired);
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     const result = await saveAccountProfile({
       username: normalizedUsername,
       displayName: normalizedName,
-      country,
+      country: canonicalCountry.name.tr,
       avatarUri: avatar,
       removeAvatar: avatarRemoved,
       completeOnboarding: true
     });
+    savingRef.current = false;
     setSaving(false);
     if (!result.ok) setError(result.message);
   }
@@ -252,7 +288,7 @@ export function ProfileCompletionGate() {
       <ThemePickerModal visible={eligible && themeStepReady && !themeSelected} required onThemeSelected={completeThemeStep} onClose={() => undefined} />
       <Modal visible={profileVisible} animationType="fade" presentationStyle="fullScreen" onRequestClose={() => undefined}>
         <KeyboardAvoidingView style={[styles.screen, { backgroundColor: colors.ink }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} scrollEnabled={!countryPickerOpen && !artistPickerOpen}>
             <View style={[styles.panel, { backgroundColor: colors.panel, borderColor: colors.line }]}>
               <View style={styles.headingRow}>
                 <View style={styles.headingText}>
@@ -269,7 +305,7 @@ export function ProfileCompletionGate() {
                 <View style={[styles.avatarHalo, { borderColor: colors.line, backgroundColor: colors.panelSoft }]}>
                   <View style={[styles.avatar, { borderColor: colors.gold, backgroundColor: colors.panelSoft }]}>
                     {avatar ? (
-                      <Image source={imageSource(avatar, "thumbnail")} style={styles.avatarImage} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" allowDownscaling transition={140} />
+                      <Image source={imageSource(avatar, selectedArtistId ? "avatar" : "thumbnail")} style={styles.avatarImage} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" allowDownscaling transition={140} />
                     ) : <Ionicons name="person" size={48} color={colors.gold} />}
                   </View>
                 </View>
@@ -280,7 +316,7 @@ export function ProfileCompletionGate() {
                     <Ionicons name="images-outline" size={17} color={colors.gold} />
                     <Text style={[styles.photoButtonText, { color: colors.ivory }]}>{copy.photoAction}</Text>
                   </Pressable>
-                  <Pressable onPress={() => setArtistPickerOpen(true)} disabled={saving} style={[styles.artistButton, { borderColor: colors.gold }]}>
+                  <Pressable onPress={() => { setArtistQuery(""); setArtistPickerOpen(true); }} disabled={saving} style={[styles.artistButton, { borderColor: colors.gold }]}>
                     <Ionicons name="color-palette-outline" size={17} color={colors.gold} />
                     <Text style={[styles.artistButtonText, { color: colors.gold }]}>{copy.artistAction}</Text>
                   </Pressable>
@@ -297,7 +333,7 @@ export function ProfileCompletionGate() {
               <ProfileField label={`${copy.name} · ${copy.required}`} value={displayName} onChangeText={setDisplayName} maxLength={DISPLAY_NAME_MAX_LENGTH} autoCapitalize="words" colors={colors} />
               <View style={fieldStyles.field}>
                 <Text style={[fieldStyles.fieldLabel, { color: colors.muted }]}>{copy.country} · {copy.required}</Text>
-                <Pressable onPress={() => setCountryPickerOpen(true)} style={[styles.countrySelect, { borderColor: colors.line, backgroundColor: colors.panelSoft }]}>
+                <Pressable onPress={() => { setCountryQuery(""); setCountryPickerOpen(true); }} disabled={saving} style={[styles.countrySelect, { borderColor: colors.line, backgroundColor: colors.panelSoft }]}>
                   <View style={styles.countryValue}>
                     <Ionicons name="earth-outline" size={18} color={colors.gold} />
                     <Text style={[styles.countryText, { color: selectedCountry ? colors.ivory : colors.muted }]} numberOfLines={1}>
@@ -315,30 +351,86 @@ export function ProfileCompletionGate() {
               </Pressable>
             </View>
           </ScrollView>
+          <PickerOverlay
+            visible={countryPickerOpen}
+            title={copy.country}
+            query={countryQuery}
+            searchPlaceholder={copy.searchCountry}
+            onQueryChange={setCountryQuery}
+            onClose={() => setCountryPickerOpen(false)}
+            colors={colors}
+          >
+            <FlatList
+              data={filteredCountries}
+              keyExtractor={(item) => item.id}
+              keyboardShouldPersistTaps="handled"
+              initialNumToRender={12}
+              maxToRenderPerBatch={12}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === "android"}
+              ListEmptyComponent={<Text style={[styles.emptyPickerText, { color: colors.muted }]}>{copy.noResults}</Text>}
+              renderItem={({ item }) => (
+                <Pressable
+                  onPress={() => {
+                    setCountry(item.name.tr);
+                    setCountryPickerOpen(false);
+                    setCountryQuery("");
+                    setError("");
+                  }}
+                  style={[styles.countryOption, { borderColor: colors.line }, item.id === selectedCountry?.id && { backgroundColor: colors.panelSoft }]}
+                >
+                  <Text style={styles.countryFlag}>{flagFromCode(item.code)}</Text>
+                  <View style={styles.countryOptionCopy}>
+                    <Text style={[styles.countryOptionText, { color: colors.ivory }]}>{item.name[language]}</Text>
+                    <Text style={[styles.countryOptionCode, { color: colors.muted }]}>{item.code}</Text>
+                  </View>
+                  {item.id === selectedCountry?.id ? <Ionicons name="checkmark-circle" size={20} color={colors.gold} /> : null}
+                </Pressable>
+              )}
+            />
+          </PickerOverlay>
+
+          <PickerOverlay
+            visible={artistPickerOpen}
+            title={copy.artistTitle}
+            subtitle={copy.artistHint}
+            query={artistQuery}
+            searchPlaceholder={copy.searchArtist}
+            onQueryChange={setArtistQuery}
+            onClose={() => setArtistPickerOpen(false)}
+            colors={colors}
+          >
+            <FlatList
+              key={`artist-grid-${artistColumns}`}
+              data={filteredArtists}
+              numColumns={artistColumns}
+              keyExtractor={(item) => item.id}
+              keyboardShouldPersistTaps="handled"
+              initialNumToRender={artistColumns * 3}
+              maxToRenderPerBatch={artistColumns * 3}
+              windowSize={5}
+              removeClippedSubviews={Platform.OS === "android"}
+              columnWrapperStyle={styles.artistRow}
+              contentContainerStyle={styles.artistList}
+              ListEmptyComponent={artistsLoading
+                ? <ActivityIndicator color={colors.gold} style={styles.emptyPickerIndicator} />
+                : artistsError && !normalizedArtistQuery
+                  ? <View style={styles.artistError}><Text style={[styles.emptyPickerText, { color: colors.muted }]}>{copy.artistsUnavailable}</Text><Pressable onPress={retryArtists} style={[styles.retryButton, { borderColor: colors.gold }]}><Text style={[styles.retryText, { color: colors.gold }]}>{copy.retry}</Text></Pressable></View>
+                  : <Text style={[styles.emptyPickerText, { color: colors.muted }]}>{copy.noResults}</Text>}
+              renderItem={({ item }) => (
+                <Pressable
+                  onPress={() => chooseArtist(item.id)}
+                  style={[styles.artistOption, { width: artistCellWidth, borderColor: selectedArtistId === item.id ? colors.gold : colors.line, backgroundColor: colors.panelSoft }]}
+                >
+                  <Image source={imageSource(item.image, "avatar")} style={styles.artistImage} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" allowDownscaling recyclingKey={`${item.id}:onboarding-avatar`} />
+                  <Text style={[styles.artistName, { color: colors.ivory }]} numberOfLines={2}>{item.name[language]}</Text>
+                  {selectedArtistId === item.id ? <View style={[styles.artistCheck, { backgroundColor: colors.gold }]}><Ionicons name="checkmark" size={13} color={colors.ink} /></View> : null}
+                </Pressable>
+              )}
+            />
+          </PickerOverlay>
         </KeyboardAvoidingView>
       </Modal>
-
-      <PickerModal visible={countryPickerOpen && profileVisible} title={copy.country} onClose={() => setCountryPickerOpen(false)} colors={colors}>
-        {countryCommunities.map((item) => (
-          <Pressable key={item.id} onPress={() => { setCountry(item.name.tr); setCountryPickerOpen(false); setError(""); }} style={[styles.countryOption, { borderColor: colors.line }, item.name.tr === country && { backgroundColor: colors.panelSoft }]}>
-            <View style={[styles.countryCodeBadge, { backgroundColor: colors.panelSoft }]}><Text style={[styles.countryCode, { color: colors.gold }]}>{item.code}</Text></View>
-            <Text style={[styles.countryOptionText, { color: colors.ivory }]}>{item.name[language]}</Text>
-            {item.name.tr === country ? <Ionicons name="checkmark-circle" size={20} color={colors.gold} /> : null}
-          </Pressable>
-        ))}
-      </PickerModal>
-
-      <PickerModal visible={artistPickerOpen && profileVisible} title={copy.artistTitle} subtitle={copy.artistHint} onClose={() => setArtistPickerOpen(false)} colors={colors}>
-        <View style={styles.artistGrid}>
-          {artists.filter((artist) => artist.image).map((artist) => (
-            <Pressable key={artist.id} onPress={() => chooseArtist(artist.id)} style={[styles.artistOption, { borderColor: selectedArtistId === artist.id ? colors.gold : colors.line, backgroundColor: colors.panelSoft }]}>
-              <Image source={imageSource(artist.image, "thumbnail")} style={styles.artistImage} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" allowDownscaling transition={120} recyclingKey={`${artist.id}:thumbnail`} />
-              <Text style={[styles.artistName, { color: colors.ivory }]} numberOfLines={2}>{artist.name[language]}</Text>
-              {selectedArtistId === artist.id ? <View style={[styles.artistCheck, { backgroundColor: colors.gold }]}><Ionicons name="checkmark" size={13} color={colors.ink} /></View> : null}
-            </Pressable>
-          ))}
-        </View>
-      </PickerModal>
     </>
   );
 }
@@ -360,10 +452,13 @@ function ProfileField({ label, colors, ...inputProps }: {
   );
 }
 
-function PickerModal({ visible, title, subtitle, onClose, colors, children }: {
+function PickerOverlay({ visible, title, subtitle, query, searchPlaceholder, onQueryChange, onClose, colors, children }: {
   visible: boolean;
   title: string;
   subtitle?: string;
+  query: string;
+  searchPlaceholder: string;
+  onQueryChange: (value: string) => void;
   onClose: () => void;
   colors: ReturnType<typeof getThemeColors>;
   children: ReactNode;
@@ -371,24 +466,41 @@ function PickerModal({ visible, title, subtitle, onClose, colors, children }: {
   const styles = useMemo(() => createStyles(), []);
   if (!visible) return null;
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.pickerBackdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[styles.pickerPanel, { backgroundColor: colors.panel, borderColor: colors.line }]}>
-          <View style={styles.pickerHeader}>
-            <View style={styles.pickerHeadingText}>
-              <Text style={[styles.pickerTitle, { color: colors.ivory }]}>{title}</Text>
-              {subtitle ? <Text style={[styles.pickerSubtitle, { color: colors.muted }]}>{subtitle}</Text> : null}
-            </View>
-            <Pressable onPress={onClose} style={[styles.closeButton, { backgroundColor: colors.panelSoft, borderColor: colors.line }]}>
-              <Ionicons name="close" size={21} color={colors.ivory} />
-            </Pressable>
+    <View style={styles.pickerBackdrop}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel={title} />
+      <View style={[styles.pickerPanel, { backgroundColor: colors.panel, borderColor: colors.line }]}>
+        <View style={styles.pickerHeader}>
+          <View style={styles.pickerHeadingText}>
+            <Text style={[styles.pickerTitle, { color: colors.ivory }]}>{title}</Text>
+            {subtitle ? <Text style={[styles.pickerSubtitle, { color: colors.muted }]}>{subtitle}</Text> : null}
           </View>
-          <ScrollView contentContainerStyle={styles.pickerContent} showsVerticalScrollIndicator={false}>{children}</ScrollView>
+          <Pressable onPress={onClose} style={[styles.closeButton, { backgroundColor: colors.panelSoft, borderColor: colors.line }]}>
+            <Ionicons name="close" size={21} color={colors.ivory} />
+          </Pressable>
         </View>
+        <View style={[styles.pickerSearch, { backgroundColor: colors.panelSoft, borderColor: colors.line }]}>
+          <Ionicons name="search" size={18} color={colors.gold} />
+          <TextInput
+            value={query}
+            onChangeText={onQueryChange}
+            placeholder={searchPlaceholder}
+            placeholderTextColor={colors.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={[styles.pickerSearchInput, { color: colors.ivory }]}
+          />
+          {query ? <Pressable onPress={() => onQueryChange("")} hitSlop={8}><Ionicons name="close-circle" size={18} color={colors.muted} /></Pressable> : null}
+        </View>
+        <View style={styles.pickerList}>{children}</View>
       </View>
-    </Modal>
+    </View>
   );
+}
+
+function flagFromCode(code: string) {
+  const normalized = code.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(normalized)) return "🌍";
+  return String.fromCodePoint(...[...normalized].map((character) => 127397 + character.charCodeAt(0)));
 }
 
 const fieldStyles = StyleSheet.create({
@@ -430,22 +542,31 @@ function createStyles() {
     saveButton: { minHeight: 54, borderRadius: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 15 },
     saveButtonText: { fontSize: 15, fontWeight: "900" },
     disabled: { opacity: 0.58 },
-    pickerBackdrop: { flex: 1, justifyContent: "center", padding: 18, backgroundColor: "rgba(0,0,0,0.74)" },
-    pickerPanel: { width: "100%", maxWidth: 500, maxHeight: "82%", alignSelf: "center", borderWidth: 1, borderRadius: 20, padding: 16 },
+    pickerBackdrop: { ...StyleSheet.absoluteFillObject, zIndex: 50, elevation: 50, justifyContent: "center", padding: 18, backgroundColor: "rgba(0,0,0,0.74)" },
+    pickerPanel: { width: "100%", maxWidth: 500, height: "82%", alignSelf: "center", borderWidth: 1, borderRadius: 20, padding: 16, overflow: "hidden" },
     pickerHeader: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 12 },
     pickerHeadingText: { flex: 1, minWidth: 0 },
     pickerTitle: { fontSize: 21, lineHeight: 27, fontWeight: "900" },
     pickerSubtitle: { fontSize: 12, lineHeight: 17, marginTop: 4 },
     closeButton: { width: 36, height: 36, borderRadius: 11, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-    pickerContent: { paddingBottom: 3 },
+    pickerSearch: { minHeight: 46, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+    pickerSearchInput: { flex: 1, minWidth: 0, height: 44, paddingVertical: 0, fontSize: 14, fontWeight: "700" },
+    pickerList: { flex: 1, minHeight: 0 },
+    emptyPickerText: { textAlign: "center", fontSize: 13, lineHeight: 19, fontWeight: "700", paddingVertical: 28 },
+    emptyPickerIndicator: { paddingVertical: 28 },
+    artistError: { alignItems: "center", paddingVertical: 18 },
+    retryButton: { minHeight: 44, borderRadius: 12, borderWidth: 1, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" },
+    retryText: { fontSize: 13, fontWeight: "800" },
     countryOption: { minHeight: 52, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 8 },
-    countryCodeBadge: { width: 38, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-    countryCode: { fontSize: 11, fontWeight: "900", letterSpacing: 0.5 },
-    countryOptionText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: "800" },
-    artistGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-    artistOption: { width: "48%", minHeight: 150, borderWidth: 1, borderRadius: 14, padding: 8, overflow: "hidden" },
-    artistImage: { width: "100%", height: 104, borderRadius: 10 },
-    artistName: { fontSize: 12, lineHeight: 16, fontWeight: "900", marginTop: 7 },
-    artistCheck: { position: "absolute", top: 14, right: 14, width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" }
+    countryFlag: { width: 34, fontSize: 22, textAlign: "center" },
+    countryOptionCopy: { flex: 1, minWidth: 0 },
+    countryOptionText: { fontSize: 14, fontWeight: "800" },
+    countryOptionCode: { fontSize: 10, lineHeight: 14, fontWeight: "800", marginTop: 1 },
+    artistList: { paddingBottom: 4 },
+    artistRow: { gap: 8, marginBottom: 8 },
+    artistOption: { minHeight: 128, borderWidth: 1, borderRadius: 14, padding: 7, overflow: "hidden" },
+    artistImage: { width: "100%", aspectRatio: 1, borderRadius: 10 },
+    artistName: { fontSize: 10.5, lineHeight: 14, fontWeight: "800", marginTop: 6, textAlign: "center" },
+    artistCheck: { position: "absolute", top: 11, right: 11, width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" }
   });
 }

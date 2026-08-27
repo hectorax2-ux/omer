@@ -29,6 +29,7 @@ import {
   sendEmailVerification,
   syncUserIdentityDenormalizedFields,
   syncUserCountryDenormalizedFields,
+  scrubPublicProfileEmail,
   updateUserProfile,
   uploadProfilePhoto,
   DeleteAccountInput
@@ -67,7 +68,6 @@ export type Account = {
     x: string;
     facebook: string;
     website: string;
-    email: string;
   };
   isProfileVisible: boolean;
   isDiscoverableByCountry: boolean;
@@ -148,8 +148,7 @@ const initialAccount: Account = {
     instagram: "resimlerle.sanat",
     x: "",
     facebook: "",
-    website: "",
-    email: "member@artatlas.app"
+    website: ""
   },
   isProfileVisible: true,
   isDiscoverableByCountry: true,
@@ -306,37 +305,20 @@ export function AccountProvider({ children }: PropsWithChildren) {
     const sociallyVerified = hasVerifiedSocialProvider(user);
 
     return onSnapshot(doc(firestoreDb, "users", user.uid), async (snapshot) => {
+      const rawProfile = snapshot.exists() ? snapshot.data() : undefined;
       const loadedProfile = snapshot.exists()
-        ? normalizeUserProfile(snapshot.data(), snapshot.id)
+        ? normalizeUserProfile(rawProfile ?? {}, snapshot.id)
         : sociallyVerified
           ? await ensureFirestoreProfile(user).catch(() => null)
           : null;
       if (firebaseAuth.currentUser?.uid !== user.uid) return;
-      const authEmail = firebaseAuth.currentUser?.email?.trim() ?? "";
-      const shouldSyncVerifiedEmail = Boolean(
-        loadedProfile
-        && authEmail
-        && isEmailVerifiedForApp(firebaseAuth.currentUser)
-        && loadedProfile.email.trim().toLowerCase() !== authEmail.toLowerCase()
-      );
-      const profile = loadedProfile && shouldSyncVerifiedEmail
-        ? {
-            ...loadedProfile,
-            email: authEmail,
-            socialLinks: {
-              ...loadedProfile.socialLinks,
-              email: !loadedProfile.socialLinks.email || loadedProfile.socialLinks.email === loadedProfile.email
-                ? authEmail
-                : loadedProfile.socialLinks.email
-            }
-          }
-        : loadedProfile;
-      if (profile && shouldSyncVerifiedEmail) {
-        void updateUserProfile(user.uid, {
-          email: profile.email,
-          socialLinks: profile.socialLinks
-        }).catch((error) => console.warn("[Auth] Verified email profile sync failed.", error));
+      const legacySocialLinks = rawProfile?.socialLinks && typeof rawProfile.socialLinks === "object"
+        ? rawProfile.socialLinks as Record<string, unknown>
+        : undefined;
+      if ((typeof rawProfile?.email === "string" && rawProfile.email.trim()) || (typeof legacySocialLinks?.email === "string" && legacySocialLinks.email.trim())) {
+        void scrubPublicProfileEmail(user.uid).catch((error) => console.warn("[Privacy] Public profile email cleanup failed.", error));
       }
+      const profile = loadedProfile;
       if (profile) {
         if (firebaseAuth.currentUser?.uid !== user.uid) return;
         profileServerReadyUidRef.current = user.uid;
@@ -419,15 +401,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
         if (verifiedEmail) {
           setAccount((current) => {
             if (current.uid !== user.uid || current.email === verifiedEmail) return current;
-            const socialLinks = {
-              ...current.socialLinks,
-              email: !current.socialLinks.email || current.socialLinks.email === current.email
-                ? verifiedEmail
-                : current.socialLinks.email
-            };
-            void updateUserProfile(user.uid, { email: verifiedEmail, socialLinks })
-              .catch((error) => console.warn("[Auth] Verified email refresh sync failed.", error));
-            return { ...current, email: verifiedEmail, socialLinks };
+            return { ...current, email: verifiedEmail };
           });
         }
       } catch {
@@ -518,7 +492,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
             city: "",
             bio: "",
             interests: [],
-            socialLinks: { email: nextAccount.email },
+            socialLinks: {},
             badges: [],
             showInCountryExplore: true,
             profileOnboardingCompleted: false,
@@ -754,6 +728,16 @@ export function AccountProvider({ children }: PropsWithChildren) {
           const countryCode = resolveCountryCode(country) ?? "";
           const countryChanged = country !== account.country || countryCode !== resolveCountryCode(account.country);
 
+          if (displayName !== user.displayName || photoURL !== user.photoURL) {
+            await updateProfile(user, {
+              displayName,
+              photoURL: nextAccount.removeAvatar ? null : photoURL || undefined
+            });
+          }
+
+          // Keep the completion marker in the same Firestore update as the
+          // required profile fields. Auth metadata is updated first so a later
+          // Auth failure can never leave a half-completed onboarding document.
           await updateUserProfile(user.uid, {
             username,
             displayName,
@@ -770,13 +754,6 @@ export function AccountProvider({ children }: PropsWithChildren) {
             } : {}),
             photoURL
           });
-
-          if (displayName !== user.displayName || photoURL !== user.photoURL) {
-            await updateProfile(user, {
-              displayName,
-              photoURL: nextAccount.removeAvatar ? null : photoURL || undefined
-            });
-          }
 
           const photoChanged = photoURL !== (account.avatar ?? "");
           if (identityChanged || photoChanged) {
@@ -798,28 +775,41 @@ export function AccountProvider({ children }: PropsWithChildren) {
             invalidateCountryCache([user.uid, username, account.username]);
           }
 
-          const profile = await getUserProfile(user.uid);
-          if (profile) {
+          const nextLocalAccount: Account = {
+            ...account,
+            username,
+            displayName,
+            bio: nextAccount.bio ?? account.bio,
+            country,
+            city: nextAccount.city ?? account.city,
+            interests: nextAccount.interests ?? account.interests,
+            socialLinks: nextAccount.socialLinks ?? account.socialLinks,
+            avatar: photoURL || undefined,
+            isDiscoverableByCountry: nextAccount.isDiscoverableByCountry ?? account.isDiscoverableByCountry
+          };
+          const incomplete = nextAccount.completeOnboarding ? false : needsProfileCompletionRef.current;
+          setAccount(nextLocalAccount);
+          setProfileHydrated(true);
+          setNeedsProfileCompletion(incomplete);
+          void saveResourceCache(`account:${user.uid}`, {
+            account: nextLocalAccount,
+            needsProfileCompletion: incomplete
+          } satisfies CachedAccountSnapshot);
+
+          // Server hydration reconciles the optimistic atomic snapshot without
+          // keeping the onboarding UI open on an extra profile read.
+          void getUserProfile(user.uid).then((profile) => {
+            if (!profile || firebaseAuth.currentUser?.uid !== user.uid) return;
             const hydratedAccount = accountFromProfile(profile);
+            const hydratedIncomplete = profileNeedsCompletion(profile);
             setAccount(hydratedAccount);
             setProfileHydrated(true);
-            const incomplete = profileNeedsCompletion(profile);
-            setNeedsProfileCompletion(incomplete);
+            setNeedsProfileCompletion(hydratedIncomplete);
             void saveResourceCache(`account:${user.uid}`, {
               account: hydratedAccount,
-              needsProfileCompletion: incomplete
+              needsProfileCompletion: hydratedIncomplete
             } satisfies CachedAccountSnapshot);
-          } else {
-            setAccount((current) => ({
-              ...current,
-              ...nextAccount,
-              username,
-              displayName,
-              avatar: photoURL || undefined,
-              isDiscoverableByCountry: nextAccount.isDiscoverableByCountry ?? current.isDiscoverableByCountry
-            }));
-            if (nextAccount.completeOnboarding) setNeedsProfileCompletion(false);
-          }
+          }).catch(() => undefined);
 
           return { ok: true, message: "Profil kaydedildi." };
         } catch (error) {
@@ -920,7 +910,7 @@ function accountFromProfile(profile: FirebaseUserProfile): Account {
     premiumExpiresAt: profile.expireDate?.toDate().toISOString(),
     isSuspended: Boolean(profile.isDisabled),
     badges,
-    email: profile.email,
+    email: firebaseAuth.currentUser?.uid === profile.uid ? firebaseAuth.currentUser.email ?? "" : "",
     avatar: profile.photoURL || undefined,
     password: "",
     totalScore: 0,
@@ -995,8 +985,7 @@ function accountFromFirebaseUser(uid: string, email: string, displayName: string
       instagram: "",
       x: "",
       facebook: "",
-      website: "",
-      email
+      website: ""
     },
     password: "",
     profileVisitVisibility: "visible",
@@ -1027,7 +1016,7 @@ async function getOrCreateSocialProfile(input: {
     city: "",
     bio: "",
     interests: [],
-    socialLinks: { email: input.email },
+    socialLinks: {},
     profileOnboardingCompleted: false,
     profileOnboardingVersion: 1
   });
@@ -1036,16 +1025,11 @@ async function getOrCreateSocialProfile(input: {
     && (!profile.displayName.trim() || profile.displayName === profile.username)
     && providerDisplayName !== profile.displayName;
   const shouldRestoreProviderPhoto = !profile.photoURL && Boolean(input.photoURL);
-  const shouldRestoreProviderEmail = !profile.email && Boolean(input.email);
-  if (!shouldRestoreProviderName && !shouldRestoreProviderPhoto && !shouldRestoreProviderEmail) return profile;
+  if (!shouldRestoreProviderName && !shouldRestoreProviderPhoto) return profile;
 
   const patch = {
     ...(shouldRestoreProviderName ? { displayName: providerDisplayName } : {}),
-    ...(shouldRestoreProviderPhoto ? { photoURL: input.photoURL } : {}),
-    ...(shouldRestoreProviderEmail ? {
-      email: input.email,
-      socialLinks: { ...profile.socialLinks, email: input.email }
-    } : {})
+    ...(shouldRestoreProviderPhoto ? { photoURL: input.photoURL } : {})
   };
   await updateUserProfile(input.user.uid, patch);
   return { ...profile, ...patch };
@@ -1070,7 +1054,7 @@ async function ensureFirestoreProfile(user: User) {
     city: "",
     bio: "",
     interests: [],
-    socialLinks: { email },
+    socialLinks: {},
     profileOnboardingCompleted: false,
     profileOnboardingVersion: 1
   }).catch(() => null);

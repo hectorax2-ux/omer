@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { GlassSurface } from "@/components/ui/glass-surface";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { SectionHeading } from "@/components/ui/section-heading";
@@ -68,7 +68,7 @@ export function FollowingActivity({ theme, artworks, posts }: { theme: AppTheme;
               accessibilityLabel={`${artwork.title}, ${artwork.artistName}`}
             >
               <HomeImage uri={artwork.image} style={styles.artImage} contentFit="cover" imageVariant="thumbnail" transition={180} />
-              <LinearGradient colors={["rgba(5,6,16,0)", "rgba(5,6,16,0.9)"]} style={StyleSheet.absoluteFill} pointerEvents="none" />
+              <ClippedGradient colors={["rgba(5,6,16,0)", "rgba(5,6,16,0.9)"]} androidColors={["rgba(5,6,16,0.08)", "rgba(5,6,16,0.92)"]} radius={radii.md} pointerEvents="none" />
               <View style={styles.artBody}>
                 <Text style={styles.artTitle} numberOfLines={2}>{artwork.title}</Text>
                 <Text style={styles.artArtist} numberOfLines={1}>{artwork.artistName}</Text>
@@ -116,7 +116,7 @@ export function SuggestedProfiles({ theme, users }: { theme: AppTheme; users: Su
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.profileRail} decelerationRate="fast">
         {users.slice(0, 5).map((user) => (
           <PressableScale key={user.uid || user.username} onPress={() => router.push({ pathname: "/profile/[name]", params: { name: profileRouteParam(user) } })} wrapStyle={styles.profilePortraitWrap} style={styles.profilePortrait} accessibilityLabel={`${user.name}, @${user.username}`}>
-            <LinearGradient colors={["rgba(49,95,234,0.18)", "rgba(17,24,49,0.98)"]} style={StyleSheet.absoluteFill} />
+            {Platform.OS === "android" ? <View style={styles.profilePortraitAndroidTint} pointerEvents="none" /> : <ClippedGradient colors={["rgba(49,95,234,0.18)", "rgba(17,24,49,0.98)"]} radius={radii.lg} pointerEvents="none" />}
             <ProfileAvatar uri={user.image} size={82} borderRadius={17} borderColor="rgba(56,215,232,0.24)" />
             <View style={styles.profilePortraitIdentity}>
               <UserNameWithCountry name={user.name} username={user.username} uid={user.uid} countryCode={resolveCountryCodeFromUser(user)} nameStyle={styles.profilePortraitName} />
@@ -157,6 +157,7 @@ function createStyles(theme: AppTheme) {
     profileRail: { gap: 10, paddingRight: 18 },
     profilePortraitWrap: { width: 132 },
     profilePortrait: { width: 132, minHeight: 166, borderRadius: radii.lg, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", alignItems: "center", padding: 12, gap: 8, backgroundColor: colors.panel },
+    profilePortraitAndroidTint: { ...StyleSheet.absoluteFillObject, borderRadius: radii.lg, backgroundColor: "rgba(49,95,234,0.1)" },
     profilePortraitIdentity: { width: "100%", minWidth: 0, alignItems: "center" },
     profilePortraitName: { ...safeTextLayout, color: colors.ivory, fontSize: 12.5, lineHeight: 16, fontWeight: "900", textAlign: "center" },
     profilePortraitUsername: { ...safeTextLayout, color: colors.muted, fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 2, maxWidth: "100%" }

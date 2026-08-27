@@ -78,6 +78,13 @@ export const premiumExperienceCopy = {
     uz: "Art Atlas'dan erkinroq, ijtimoiyroq va shaxsiyroq foydalaning."
   },
   plansEyebrow: { tr: "PREMIUM’A KATIL", en: "JOIN PREMIUM", ru: "ПРИСОЕДИНИТЬСЯ К PREMIUM", uz: "PREMIUM'GA QO'SHILING" },
+  purchaseTitle: { tr: "Premium’a sahip ol", en: "Get Premium", ru: "Получите Premium", uz: "Premium'ga ega bo'ling" },
+  purchaseBody: {
+    tr: "Tüm ayrıcalıkları hemen açmak için sana uygun Premium planını seç.",
+    en: "Choose the Premium plan that suits you and unlock every benefit.",
+    ru: "Выберите подходящий план Premium и откройте все преимущества.",
+    uz: "Barcha imtiyozlarni ochish uchun o'zingizga mos Premium rejasini tanlang."
+  },
   plansTitle: { tr: "Sana uygun süreyi seç", en: "Choose the duration that suits you", ru: "Выберите подходящий срок", uz: "O'zingizga mos muddatni tanlang" },
   plansBody: {
     tr: "Hangi planı seçersen seç, tüm Premium ayrıcalıklarına sahip olursun.",
@@ -153,9 +160,9 @@ export const premiumQuickBenefits: readonly PremiumQuickBenefit[] = [
   {
     id: "visitors",
     icon: "eye-outline",
-    title: { tr: "Galerine kimler uğradı?", en: "Who visited your gallery?", ru: "Кто заглянул в галерею?", uz: "Galereyangizga kim keldi?" },
-    body: { tr: "Ziyaretçilerini, ziyaret zamanlarını ve tekrar ziyaretlerini görüntüle.", en: "See visitors, visit times, and returning visits.", ru: "Узнавайте посетителей, время и повторные визиты.", uz: "Tashrif buyuruvchilarni, vaqtini va takroriy tashriflarni ko'ring." },
-    tag: { tr: "Detaylı ziyaretçiler", en: "Detailed visitors", ru: "Подробности визитов", uz: "Batafsil tashriflar" }
+    title: { tr: "Profil Ziyaretleri", en: "Profile Visits", ru: "Посещения профиля", uz: "Profil tashriflari" },
+    body: { tr: "Yalnızca Premium ile son 7 gündeki ziyaretçilerini, zamanlarını ve tekrar ziyaretlerini görüntüle.", en: "Exclusively with Premium, see visitors from the last 7 days, visit times, and returning visits.", ru: "Только с Premium: посетители за 7 дней, время и повторные визиты.", uz: "Faqat Premium bilan so'nggi 7 kundagi tashrifchilar, vaqt va qayta tashriflarni ko'ring." },
+    tag: { tr: "Yalnızca Premium", en: "Premium exclusive", ru: "Только Premium", uz: "Faqat Premium" }
   }
 ] as const;
 
@@ -237,11 +244,11 @@ export const premiumFeatureSections: readonly PremiumFeatureSection[] = [
     icon: "business-outline",
     eyebrow: { tr: "KİŞİSEL GALERİN", en: "YOUR PERSONAL GALLERY", ru: "ВАША ЛИЧНАЯ ГАЛЕРЕЯ", uz: "SHAXSIY GALEREYANGIZ" },
     title: { tr: "Koleksiyonunu büyüt, ziyaretçilerini tanı", en: "Grow your collection and know your visitors", ru: "Расширяйте коллекцию и узнавайте посетителей", uz: "Kolleksiyangizni kengaytiring, tashrifchilarni biling" },
-    description: { tr: "Kendi dijital müzeni büyüt ve galerine gösterilen ilgiyi daha ayrıntılı keşfet.", en: "Expand your digital museum and understand the attention your gallery receives.", ru: "Расширяйте цифровой музей и узнавайте больше об интересе к вашей галерее.", uz: "Raqamli muzeyingizni kengaytiring va galereyangizga qiziqishni batafsil ko'ring." },
+    description: { tr: "Kendi dijital müzeni büyüt ve yalnızca Premium’a açık Profil Ziyaretleri ile galerine gösterilen ilgiyi keşfet.", en: "Expand your digital museum and understand its audience with Premium-exclusive Profile Visits.", ru: "Расширяйте цифровой музей и изучайте его аудиторию в разделе посещений, доступном только с Premium.", uz: "Raqamli muzeyingizni kengaytiring va faqat Premium uchun Profil tashriflari orqali qiziqishni kuzating." },
     features: [
       { tr: "Benim Müzem’de 8 yerine 100 eser biriktir", en: "Collect 100 works in My Museum instead of 8", ru: "Храните в личном музее 100 работ вместо 8", uz: "Benim Müzem'da 8 o'rniga 100 asar jamlang" },
       { tr: "Müzeni sildikten sonra aynı hafta beklemeden yeniden oluştur", en: "Recreate your museum in the same week after deleting it", ru: "Создавайте музей заново в ту же неделю после удаления", uz: "Muzeyni o'chirgach, shu haftaning o'zida kutmasdan qayta yarating" },
-      { tr: "Son 7 gündeki ziyaretçileri, zamanlarını ve tekrar ziyaret sayılarını gör", en: "See visitors from the last 7 days, visit times, and return counts", ru: "Смотрите посетителей за 7 дней, время и число повторных визитов", uz: "So'nggi 7 kundagi tashrifchilar, vaqt va qayta tashriflar sonini ko'ring" }
+      { tr: "Yalnızca Premium’a açık Profil Ziyaretleri’nde son 7 günü, ziyaret zamanlarını ve tekrar ziyaret sayılarını gör", en: "Use Premium-exclusive Profile Visits to see 7-day visitors, visit times, and return counts", ru: "В Premium-разделе посещений смотрите данные за 7 дней, время и число повторных визитов", uz: "Faqat Premium Profil tashriflarida 7 kunlik tashrifchilar, vaqt va qayta tashriflar sonini ko'ring" }
     ],
     highlight: { tr: "8 eserden 100 esere.", en: "From 8 works to 100.", ru: "От 8 работ к 100.", uz: "8 asardan 100 asargacha." },
     note: { tr: "Gizli ziyaretçiler anonim kalmaya devam eder.", en: "Private visitors remain anonymous.", ru: "Скрытые посетители остаются анонимными.", uz: "Yashirin tashrifchilar anonim bo'lib qoladi." }

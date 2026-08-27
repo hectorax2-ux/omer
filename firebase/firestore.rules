@@ -102,9 +102,15 @@ service cloud.firestore {
         'premiumActivatedAt', 'premiumExpiresAt', 'premiumVerified', 'premiumSource', 'timelineTimeZone', 'timelineTimeZoneUpdatedAt'];
     }
 
+    function publicProfileEmailSafe(data) {
+      return (!('email' in data) || data.email == '')
+        && (!('socialLinks' in data) || !('email' in data.socialLinks) || data.socialLinks.email == '');
+    }
+
     match /users/{userId} {
       allow read: if signedIn() || admin();
       allow create: if isSelf(userId)
+        && publicProfileEmailSafe(request.resource.data)
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.role == 'user'
         && (!('badges' in request.resource.data) || request.resource.data.badges == [])
@@ -116,6 +122,7 @@ service cloud.firestore {
         && (!('isPremium' in request.resource.data) || request.resource.data.isPremium == false)
         && (!('profileVisitVisibility' in request.resource.data) || request.resource.data.profileVisitVisibility in ['visible', 'anonymous']);
       allow update: if isSelf(userId)
+        && publicProfileEmailSafe(request.resource.data)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedUserFields())
         && (!('profileVisitVisibility' in request.resource.data) || request.resource.data.profileVisitVisibility in ['visible', 'anonymous']);
       allow delete: if verifiedOwner(userId) || admin();
@@ -614,6 +621,11 @@ service cloud.firestore {
     match /appSettings/{settingId} {
       allow read: if true;
       allow create, update, delete: if admin();
+    }
+
+    match /appUpdates/{platform} {
+      allow read: if platform in ['ios', 'android'];
+      allow create, update, delete: if platform in ['ios', 'android'] && admin();
     }
 
     match /rewardInfos/{rewardId} {

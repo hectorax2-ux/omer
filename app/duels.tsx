@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
@@ -373,7 +374,7 @@ function OracleArenaHero({ images, title, subtitle, reducedMotion, styles, color
 function DuelMenuCard({ icon, title, text, accent, compact, featured, ranking, onPress, styles, colors }: { icon: keyof typeof Ionicons.glyphMap; title: string; text: string; accent?: string; compact?: boolean; featured?: boolean; ranking?: boolean; onPress: () => void; styles: ReturnType<typeof createStyles>; colors: ReturnType<typeof getThemeColors> }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`${title}. ${text}`} onPress={onPress} style={({ pressed }) => [styles.menuCard, compact && styles.portalCard, featured && styles.featuredPortal, ranking && styles.rankingPortal, pressed && styles.menuCardPressed]}>
-      {featured ? <LinearGradient colors={["rgba(74,39,124,0.96)", "rgba(143,37,116,0.92)"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} /> : null}
+      {featured ? <ClippedGradient colors={["rgba(74,39,124,0.96)", "rgba(143,37,116,0.92)"]} androidColors={["rgba(45,28,70,0.98)", "rgba(93,28,77,0.94)"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} radius={16} /> : null}
       <View style={[styles.menuIcon, { borderColor: accent ?? colors.gold, backgroundColor: `${accent ?? colors.gold}1F` }]}>
         <Ionicons name={icon} size={compact ? 22 : 24} color={accent ?? colors.gold} />
       </View>

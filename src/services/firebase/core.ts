@@ -28,6 +28,7 @@ import {
   DocumentData,
   Firestore,
   Timestamp,
+  deleteField,
   doc,
   getDoc,
   getFirestore,
@@ -105,7 +106,6 @@ export type FirebaseSocialLinks = {
   x: string;
   facebook: string;
   website: string;
-  email: string;
 };
 
 export type FirebaseUserProfile = {
@@ -175,14 +175,6 @@ export type DeleteAccountInput = {
   googleIdToken?: string;
   appleIdentityToken?: string;
   appleRawNonce?: string;
-};
-
-const defaultSocialLinks: FirebaseSocialLinks = {
-  instagram: "",
-  x: "",
-  facebook: "",
-  website: "",
-  email: ""
 };
 
 const existingFirebaseApp: FirebaseApp | null = getApps().length ? getApp() : null;
@@ -341,8 +333,9 @@ export async function resetPassword(email: string): Promise<void> {
 
 export async function createUserProfile(profile: CreateUserProfileInput): Promise<FirebaseUserProfile> {
   const normalizedProfile = buildUserProfile(profile);
+  const { email: _privateEmail, ...publicProfile } = normalizedProfile;
   await setDoc(doc(firestoreDb, "users", normalizedProfile.uid), {
-    ...normalizedProfile,
+    ...publicProfile,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
@@ -357,8 +350,9 @@ export async function getOrCreateUserProfile(profile: CreateUserProfileInput): P
     if (snapshot.exists()) return normalizeUserProfile(snapshot.data(), snapshot.id);
 
     const normalizedProfile = buildUserProfile(profile);
+    const { email: _privateEmail, ...publicProfile } = normalizedProfile;
     transaction.set(profileRef, {
-      ...normalizedProfile,
+      ...publicProfile,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -385,10 +379,23 @@ export async function updateUserProfile(uid: string, profile: UpdateUserProfileI
     throw new Error(`İsim en az ${DISPLAY_NAME_MIN_LENGTH} karakter olmalı.`);
   }
 
+  const { email: _privateEmail, socialLinks, ...publicProfile } = profile;
   await updateDoc(doc(firestoreDb, "users", uid), {
-    ...profile,
+    ...publicProfile,
+    email: deleteField(),
+    ...(socialLinks
+      ? { socialLinks }
+      : { "socialLinks.email": deleteField() }),
     ...(typeof profile.username === "string" ? { username: normalizeUsername(profile.username) } : {}),
     ...(typeof profile.displayName === "string" ? { displayName: normalizeDisplayName(profile.displayName) } : {}),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function scrubPublicProfileEmail(uid: string): Promise<void> {
+  await updateDoc(doc(firestoreDb, "users", uid), {
+    email: deleteField(),
+    "socialLinks.email": deleteField(),
     updatedAt: serverTimestamp()
   });
 }
@@ -503,7 +510,7 @@ function buildUserProfile(profile: CreateUserProfileInput): FirebaseUserProfile 
   return {
     uid: profile.uid,
     username: normalizeUsername(profile.username),
-    email: profile.email.trim(),
+    email: "",
     displayName,
     photoURL: profile.photoURL ?? "",
     role: profile.role === "admin" ? "admin" : "user",
@@ -514,8 +521,10 @@ function buildUserProfile(profile: CreateUserProfileInput): FirebaseUserProfile 
     bio: profile.bio ?? "",
     interests: profile.interests ?? [],
     socialLinks: {
-      ...defaultSocialLinks,
-      ...profile.socialLinks
+      instagram: profile.socialLinks?.instagram ?? "",
+      x: profile.socialLinks?.x ?? "",
+      facebook: profile.socialLinks?.facebook ?? "",
+      website: profile.socialLinks?.website ?? ""
     },
     badges: profile.badges ?? [],
     systemBadges: profile.systemBadges ?? [],
@@ -536,7 +545,7 @@ export function normalizeUserProfile(data: DocumentData, uid: string): FirebaseU
   return {
     uid,
     username: typeof data.username === "string" ? data.username : "",
-    email: typeof data.email === "string" ? data.email : "",
+    email: "",
     displayName: typeof data.displayName === "string" ? data.displayName : "",
     photoURL: typeof data.photoURL === "string" ? data.photoURL : "",
     role: typeof data.role === "string" ? data.role as FirebaseUserRole : "user",
@@ -549,8 +558,10 @@ export function normalizeUserProfile(data: DocumentData, uid: string): FirebaseU
     bio: typeof data.bio === "string" ? data.bio : "",
     interests: Array.isArray(data.interests) ? data.interests.filter((item: unknown) => typeof item === "string") : [],
     socialLinks: {
-      ...defaultSocialLinks,
-      ...(typeof data.socialLinks === "object" && data.socialLinks ? data.socialLinks : {})
+      instagram: typeof data.socialLinks?.instagram === "string" ? data.socialLinks.instagram : "",
+      x: typeof data.socialLinks?.x === "string" ? data.socialLinks.x : "",
+      facebook: typeof data.socialLinks?.facebook === "string" ? data.socialLinks.facebook : "",
+      website: typeof data.socialLinks?.website === "string" ? data.socialLinks.website : ""
     },
     badges: Array.isArray(data.badges) ? data.badges.filter((item: unknown) => typeof item === "string") as FirebaseBadgeId[] : [],
     systemBadges: Array.isArray(data.systemBadges) ? data.systemBadges.filter((item: unknown) => typeof item === "string") as FirebaseSystemBadgeId[] : [],

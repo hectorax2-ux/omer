@@ -55,7 +55,6 @@ import { isAppleCancelError, requestAppleSignInCredential } from "@/utils/apple-
 
 const BIO_MAX_LENGTH = 150;
 const SOCIAL_LINK_MAX_LENGTH = 50;
-const SOCIAL_EMAIL_MAX_LENGTH = 50;
 const CITY_MAX_LENGTH = 30;
 const PROFILE_IMAGE_STORY_MIN_LENGTH = 10;
 const PROFILE_IMAGE_STORY_MAX_LENGTH = 300;
@@ -112,7 +111,6 @@ function AccountContent() {
   const [xLink, setXLink] = useState(account.socialLinks.x);
   const [facebook, setFacebook] = useState(account.socialLinks.facebook);
   const [website, setWebsite] = useState(account.socialLinks.website);
-  const [socialEmail, setSocialEmail] = useState(account.socialLinks.email);
   const [isDiscoverableByCountry, setIsDiscoverableByCountry] = useState(account.isDiscoverableByCountry);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -171,7 +169,6 @@ function AccountContent() {
     setXLink(account.socialLinks.x);
     setFacebook(account.socialLinks.facebook);
     setWebsite(account.socialLinks.website);
-    setSocialEmail(account.socialLinks.email);
     setIsDiscoverableByCountry(account.isDiscoverableByCountry);
     setSaved(false);
   }
@@ -238,8 +235,7 @@ function AccountContent() {
         instagram: instagram.trim().slice(0, SOCIAL_LINK_MAX_LENGTH),
         x: xLink.trim().slice(0, SOCIAL_LINK_MAX_LENGTH),
         facebook: facebook.trim().slice(0, SOCIAL_LINK_MAX_LENGTH),
-        website: website.trim().slice(0, SOCIAL_LINK_MAX_LENGTH),
-        email: socialEmail.trim().slice(0, SOCIAL_EMAIL_MAX_LENGTH)
+        website: website.trim().slice(0, SOCIAL_LINK_MAX_LENGTH)
       },
       isProfileVisible: true,
       isDiscoverableByCountry
@@ -871,7 +867,6 @@ function AccountContent() {
             <Field label="X / Twitter" value={xLink} onChangeText={(value) => editField(setXLink)(value.slice(0, SOCIAL_LINK_MAX_LENGTH))} maxLength={SOCIAL_LINK_MAX_LENGTH} />
             <Field label="Facebook" value={facebook} onChangeText={(value) => editField(setFacebook)(value.slice(0, SOCIAL_LINK_MAX_LENGTH))} maxLength={SOCIAL_LINK_MAX_LENGTH} />
             <Field label="Website" value={website} onChangeText={(value) => editField(setWebsite)(value.slice(0, SOCIAL_LINK_MAX_LENGTH))} maxLength={SOCIAL_LINK_MAX_LENGTH} />
-            <Field label="E-posta" value={socialEmail} onChangeText={(value) => editField(setSocialEmail)(value.slice(0, SOCIAL_EMAIL_MAX_LENGTH))} keyboardType="email-address" maxLength={SOCIAL_EMAIL_MAX_LENGTH} />
             <Text style={styles.label}>{uiCopy.countryDiscoveryTitle[language]}</Text>
             <ToggleDraft label={uiCopy.countryDiscovery[language]} value={isDiscoverableByCountry} onPress={() => { setIsDiscoverableByCountry((value) => !value); setSaved(false); }} />
 
@@ -1748,7 +1743,6 @@ function SocialIconRow({ links, styles, colors, onPress, language }: {
     x: string;
     facebook: string;
     website: string;
-    email: string;
   };
   styles: ReturnType<typeof createStyles>;
   colors: ReturnType<typeof getThemeColors>;
@@ -1759,8 +1753,7 @@ function SocialIconRow({ links, styles, colors, onPress, language }: {
     { key: "instagram", icon: "logo-instagram" as const, value: links.instagram },
     { key: "x", icon: "logo-twitter" as const, value: links.x },
     { key: "facebook", icon: "logo-facebook" as const, value: links.facebook },
-    { key: "website", icon: "globe-outline" as const, value: links.website },
-    { key: "email", icon: "mail-outline" as const, value: links.email }
+    { key: "website", icon: "globe-outline" as const, value: links.website }
   ].filter((item) => item.value.trim());
 
   if (!items.length) {
@@ -1789,7 +1782,6 @@ function SocialLinksModal({ visible, onClose, links, styles, colors, language }:
     x: string;
     facebook: string;
     website: string;
-    email: string;
   };
   styles: ReturnType<typeof createStyles>;
   colors: ReturnType<typeof getThemeColors>;
@@ -1799,8 +1791,7 @@ function SocialLinksModal({ visible, onClose, links, styles, colors, language }:
     { label: "Instagram", value: links.instagram ? `instagram.com/${links.instagram.replace(/^@/, "")}` : "", icon: "logo-instagram" as const },
     { label: "X / Twitter", value: links.x ? `x.com/${links.x.replace(/^@/, "")}` : "", icon: "logo-twitter" as const },
     { label: "Facebook", value: links.facebook ? `facebook.com/${links.facebook.replace(/^@/, "")}` : "", icon: "logo-facebook" as const },
-    { label: "Website", value: links.website, icon: "globe-outline" as const },
-    { label: "E-posta", value: links.email, icon: "mail-outline" as const }
+    { label: "Website", value: links.website, icon: "globe-outline" as const }
   ].filter((row) => row.value.trim());
 
   return (

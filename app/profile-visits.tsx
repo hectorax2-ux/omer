@@ -51,7 +51,7 @@ export default function ProfileVisitsScreen() {
 
   useEffect(() => {
     orbitProgress.stopAnimation();
-    if (reducedMotion || performanceMode !== "full" || !isFocused) {
+    if (!account.isPremium || reducedMotion || performanceMode !== "full" || !isFocused) {
       orbitProgress.setValue(0.12);
       return undefined;
     }
@@ -63,10 +63,16 @@ export default function ProfileVisitsScreen() {
     }));
     animation.start();
     return () => animation.stop();
-  }, [isFocused, orbitProgress, performanceMode, reducedMotion]);
+  }, [account.isPremium, isFocused, orbitProgress, performanceMode, reducedMotion]);
 
   useEffect(() => {
-    if (!account.uid) return;
+    if (!account.uid || !account.isPremium) {
+      requestRef.current += 1;
+      snapshotRef.current = null;
+      setSnapshot(null);
+      setLoadState("loading");
+      return;
+    }
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
     let active = true;
@@ -87,7 +93,7 @@ export default function ProfileVisitsScreen() {
       setSnapshot(cached);
       setLoadState(cached.summaries.length ? "data" : "empty");
     });
-    void fetchProfileVisits(account.uid, account.isPremium).then((fresh) => {
+    void fetchProfileVisits(account.uid, true).then((fresh) => {
       if (!active || requestRef.current !== requestId) return;
       snapshotRef.current = fresh;
       setSnapshot(fresh);
@@ -107,6 +113,9 @@ export default function ProfileVisitsScreen() {
   }, [account.isPremium, account.uid, reloadToken]);
 
   if (!isAuthenticated) return <AuthRequired title={t(profileVisitsCopy.title, language)} />;
+  if (!account.isPremium) {
+    return <PremiumProfileVisitsGate language={language} colors={colors} styles={styles} onUpgrade={() => router.push("/premium")} />;
+  }
 
   const now = Date.now();
   const summaries = snapshot?.summaries ?? [];
@@ -210,7 +219,7 @@ export default function ProfileVisitsScreen() {
           <Text style={styles.emptyNote}>{t(profileVisitsCopy.emptyNote, language)}</Text>
         </View>
       ) : null}
-      {loadState === "data" && account.isPremium ? (
+      {loadState === "data" ? (
         <View style={styles.timelineSection}>
           <Text style={styles.sectionTitle}>{t(profileVisitsCopy.visitors, language)}</Text>
           {summaries.map((visit, index) => {
@@ -250,19 +259,45 @@ export default function ProfileVisitsScreen() {
           })}
         </View>
       ) : null}
-      {loadState === "data" && !account.isPremium ? (
-        <LinearGradient colors={[colors.panel, colors.navy]} style={styles.premiumReveal}>
-          <View style={styles.premiumIcon}><Ionicons name="diamond-outline" size={22} color={colors.gold} /></View>
-          <View style={styles.premiumCopy}>
-            <Text style={styles.premiumTitle}>{t(profileVisitsCopy.premiumTitle, language)}</Text>
-            <Text style={styles.premiumCount}>+{summaries.length} {t(profileVisitsCopy.moreVisitors, language)}</Text>
-            <Text style={styles.premiumBody}>{t(profileVisitsCopy.premiumBody, language)}</Text>
-          </View>
-          <Pressable onPress={() => router.push("/premium")} style={styles.premiumButton}>
-            <Text style={styles.premiumButtonText}>{t(profileVisitsCopy.premiumCta, language)}</Text>
-          </Pressable>
-        </LinearGradient>
-      ) : null}
+    </AppChrome>
+  );
+}
+
+function PremiumProfileVisitsGate({ language, colors, styles, onUpgrade }: {
+  language: "tr" | "en" | "ru" | "uz";
+  colors: ReturnType<typeof getThemeColors>;
+  styles: ReturnType<typeof createStyles>;
+  onUpgrade: () => void;
+}) {
+  const features = [
+    profileVisitsCopy.lockedFeatureVisitors,
+    profileVisitsCopy.lockedFeatureTime,
+    profileVisitsCopy.lockedFeaturePrivacy
+  ];
+  return (
+    <AppChrome title={t(profileVisitsCopy.title, language)} eyebrow={t(profileVisitsCopy.eyebrow, language)} showBackButton backToHome>
+      <LinearGradient colors={["#111A35", "#171638", "#241A42"]} style={styles.lockedCard}>
+        <View pointerEvents="none" style={styles.lockedHalo} />
+        <View style={styles.lockedIcon}>
+          <Ionicons name="diamond" size={27} color={colors.gold} />
+        </View>
+        <Text style={styles.lockedEyebrow}>{t(profileVisitsCopy.lockedEyebrow, language)}</Text>
+        <Text style={styles.lockedTitle}>{t(profileVisitsCopy.lockedTitle, language)}</Text>
+        <Text style={styles.lockedBody}>{t(profileVisitsCopy.lockedBody, language)}</Text>
+        <View style={styles.lockedFeatures}>
+          {features.map((feature) => (
+            <View key={feature.en} style={styles.lockedFeatureRow}>
+              <Ionicons name="checkmark-circle" size={17} color={colors.gold} />
+              <Text style={styles.lockedFeatureText}>{t(feature, language)}</Text>
+            </View>
+          ))}
+        </View>
+        <Pressable accessibilityRole="button" onPress={onUpgrade} style={({ pressed }) => [styles.lockedButton, pressed && styles.lockedButtonPressed]}>
+          <Ionicons name="diamond-outline" size={17} color={colors.ink} />
+          <Text style={styles.lockedButtonText}>{t(profileVisitsCopy.lockedCta, language)}</Text>
+        </Pressable>
+        <Text style={styles.lockedNote}>{t(profileVisitsCopy.lockedNote, language)}</Text>
+      </LinearGradient>
     </AppChrome>
   );
 }
@@ -356,14 +391,19 @@ function createStyles(colors: ReturnType<typeof getThemeColors>, compact: boolea
     metaLine: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 2 },
     visitTime: { ...safeTextLayout, color: colors.muted, fontSize: 10.5, lineHeight: 15, fontWeight: "700" },
     returnedText: { ...safeTextLayout, color: colors.gold, fontSize: 10.5, lineHeight: 15, fontWeight: "800" },
-    premiumReveal: { borderRadius: 16, borderWidth: 1, borderColor: `${colors.gold}55`, padding: 14, flexDirection: compact ? "column" : "row", alignItems: compact ? "stretch" : "center", gap: 11, marginBottom: 14 },
-    premiumIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: `${colors.gold}55`, alignItems: "center", justifyContent: "center", alignSelf: compact ? "center" : "auto" },
-    premiumCopy: { flex: 1, minWidth: 0 },
-    premiumTitle: { ...safeTextLayout, color: colors.ivory, fontSize: 14, lineHeight: 18, fontWeight: "900", textAlign: compact ? "center" : "left" },
-    premiumCount: { ...safeTextLayout, color: colors.gold, fontSize: 12, lineHeight: 17, fontWeight: "900", marginTop: 2, textAlign: compact ? "center" : "left" },
-    premiumBody: { ...safeTextLayout, color: colors.muted, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 3, textAlign: compact ? "center" : "left" },
-    premiumButton: { minHeight: 38, borderRadius: 10, borderWidth: 1, borderColor: colors.gold, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
-    premiumButtonText: { ...safeTextLayout, color: colors.gold, fontSize: 11.5, lineHeight: 16, fontWeight: "900", textAlign: "center" },
+    lockedCard: { minHeight: compact ? 500 : 540, borderRadius: 22, borderWidth: 1, borderColor: `${colors.gold}66`, paddingHorizontal: compact ? 18 : 24, paddingVertical: compact ? 25 : 31, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+    lockedHalo: { position: "absolute", top: -90, width: 260, height: 190, borderRadius: 130, borderWidth: 1, borderColor: `${colors.gold}22`, backgroundColor: `${colors.gold}08` },
+    lockedIcon: { width: 68, height: 68, borderRadius: 22, borderWidth: 1, borderColor: `${colors.gold}66`, backgroundColor: `${colors.gold}12`, alignItems: "center", justifyContent: "center", marginBottom: 17 },
+    lockedEyebrow: { ...safeTextLayout, color: colors.gold, fontSize: 10, lineHeight: 14, fontWeight: "900", letterSpacing: 1.2, textAlign: "center" },
+    lockedTitle: { ...safeTextLayout, color: colors.ivory, fontSize: compact ? 23 : 27, lineHeight: compact ? 29 : 33, fontWeight: "900", textAlign: "center", maxWidth: 360, marginTop: 8 },
+    lockedBody: { ...safeTextLayout, color: colors.muted, fontSize: compact ? 12.5 : 13.5, lineHeight: compact ? 19 : 21, fontWeight: "600", textAlign: "center", maxWidth: 390, marginTop: 10 },
+    lockedFeatures: { alignSelf: "stretch", maxWidth: 390, width: "100%", gap: 10, marginTop: 21 },
+    lockedFeatureRow: { minHeight: 40, borderRadius: 12, borderWidth: 1, borderColor: `${colors.gold}25`, backgroundColor: `${colors.ink}55`, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingVertical: 8 },
+    lockedFeatureText: { ...safeTextLayout, flex: 1, color: colors.ivory, fontSize: 11.5, lineHeight: 17, fontWeight: "700" },
+    lockedButton: { minHeight: 50, borderRadius: 14, backgroundColor: colors.gold, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, alignSelf: "stretch", maxWidth: 390, marginTop: 22, paddingHorizontal: 18 },
+    lockedButtonPressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
+    lockedButtonText: { ...safeTextLayout, color: colors.ink, fontSize: 13.5, lineHeight: 18, fontWeight: "900", textAlign: "center" },
+    lockedNote: { ...safeTextLayout, color: colors.bronze, fontSize: 10, lineHeight: 15, fontWeight: "600", textAlign: "center", maxWidth: 360, marginTop: 11 },
     stateCard: { minHeight: 230, borderRadius: 18, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel, alignItems: "center", justifyContent: "center", padding: 24, marginBottom: 14 },
     stateTitle: { ...safeTextLayout, color: colors.ivory, fontSize: 17, lineHeight: 22, fontWeight: "900", textAlign: "center", marginTop: 12 },
     stateText: { ...safeTextLayout, color: colors.muted, fontSize: 12.5, lineHeight: 18, fontWeight: "700", textAlign: "center", maxWidth: 290, marginTop: 5 },

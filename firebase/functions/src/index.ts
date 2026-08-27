@@ -20,6 +20,7 @@ import { processPendingExpoPushReceipts } from "./push-notifications";
 
 export { finishCompetitionWeekAdmin, resetCompetitionUploadQuotasAdmin } from "./competition-week-runner";
 export { syncUserFollowCounts } from "./sync-follow-counts";
+export { scrubPublicProfileEmail } from "./scrub-public-profile-email";
 export { syncProfileVisit, syncProfileVisitPrivacy } from "./sync-profile-visits";
 export { syncLikeCounts, syncFavoriteCounts } from "./sync-engagement-counts";
 export { sendDirectMessage, directMessageConversationAction, blockDirectMessageUser, unblockDirectMessageUser, reportDirectMessage, sendAdminDirectMessage } from "./send-direct-message";

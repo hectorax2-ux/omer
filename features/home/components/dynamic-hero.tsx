@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { ArtworkOrbit } from "@/components/ui/artwork-orbit";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { homeCopy } from "@/app/i18n/common";
@@ -88,7 +89,7 @@ export function DynamicHero({ theme, items, greetingKey, displayName, premium, o
       </View>
 
       <PressableScale onPress={() => onOpen(active.id)} wrapStyle={styles.todayPanelPosition} style={[styles.todayPanel, lightweight && styles.todayPanelLightweight]} accessibilityLabel={`${active.title}, ${active.artist}`}>
-        <LinearGradient colors={["rgba(12,18,39,0.94)", "rgba(8,24,45,0.78)"]} style={StyleSheet.absoluteFill} />
+        <ClippedGradient colors={["rgba(12,18,39,0.94)", "rgba(8,24,45,0.78)"]} androidColors={["rgba(12,18,39,0.96)", "rgba(11,22,39,0.9)"]} radius={radii.lg} />
         <View style={styles.todayCopy}>
           <Text style={styles.todayEyebrow}>{t(homeCopy.dailyArtwork, language)}</Text>
           <Text style={styles.todayTitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.9}>{active.title}</Text>

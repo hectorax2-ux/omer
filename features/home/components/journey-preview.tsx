@@ -1,13 +1,14 @@
 import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { JourneyOrb, journeyEraPalette } from "@/components/ui/journey-orb";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { homeCopy } from "@/app/i18n/common";
 import { homeLayout, radii, v2Colors } from "@/constants/design";
 import { safeTextLayout } from "@/constants/text-layout";
-import { AppTheme, getThemeColors } from "@/constants/theme";
+import { AppTheme } from "@/constants/theme";
 import { useLanguage } from "@/hooks/use-language";
 import { t } from "@/utils/localized-text";
 import { journeyProgressPercent } from "../journey-engine";
@@ -25,7 +26,6 @@ export function JourneyPreview({ theme, journey, stages, progress, previewCount,
 }) {
   const { language } = useLanguage();
   const { width } = useWindowDimensions();
-  const colors = getThemeColors(theme);
   const compact = width < 360;
   const currentIndex = Math.max(0, stages.findIndex((stage) => stage.state === "current"));
   const current = stages[currentIndex];
@@ -74,7 +74,7 @@ export function JourneyPreview({ theme, journey, stages, progress, previewCount,
 
       {current ? (
         <PressableScale onPress={() => onOpenStage(current)} style={styles.continueCapsule} accessibilityLabel={`${t(homeCopy.continueAction, language)}: ${current.activity.title}`}>
-          <LinearGradient colors={["rgba(67,56,202,0.34)", "rgba(126,34,206,0.3)", "rgba(157,23,77,0.26)"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />
+          <ClippedGradient colors={["rgba(67,56,202,0.34)", "rgba(126,34,206,0.3)", "rgba(157,23,77,0.26)"]} androidColors={["rgba(67,56,202,0.3)", "rgba(126,34,206,0.18)"]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} radius={radii.xl} />
           <View style={styles.playOrb}><Ionicons name="play" size={16} color={v2Colors.text} /></View>
           <View style={styles.continueCopy}><Text style={styles.continueEyebrow}>{t(homeCopy.continueJourney, language)}</Text><Text style={styles.continueTitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.88}>{current.activity.title}</Text></View>
           <View style={styles.arrowOrb}><Ionicons name="arrow-forward" size={16} color={v2Colors.text} /></View>

@@ -37,26 +37,29 @@ export default function PremiumScreen() {
   }, [account.premiumExpiresAt, language]);
 
   const items = useMemo(() => {
-    const result: AppChromeVirtualizedItem[] = [
-      {
-        key: "hero",
-        content: <PremiumHero isPremium={account.isPremium} expiryDate={account.isPremium ? expiryDate : null} language={language} styles={styles} />
-      },
-      { key: "quick-benefits", content: <QuickBenefits language={language} styles={styles} /> },
-      {
-        key: "plans",
-        content: (
-          <View style={styles.sectionBlock}>
-            <SectionHeading
-              eyebrow={t(premiumExperienceCopy.plansEyebrow, language)}
-              title={t(premiumExperienceCopy.plansTitle, language)}
-              body={t(premiumExperienceCopy.plansBody, language)}
-              styles={styles}
-            />
-            <PremiumPlansSection language={language} theme={theme} isPremium={account.isPremium} statusTextStyle={styles.status} />
+    const hero: AppChromeVirtualizedItem = {
+      key: "hero",
+      content: <PremiumHero isPremium={account.isPremium} expiryDate={account.isPremium ? expiryDate : null} language={language} styles={styles} />
+    };
+    const plans: AppChromeVirtualizedItem = {
+      key: "plans",
+      content: (
+        <LinearGradient colors={["rgba(241,191,80,0.15)", "rgba(118,87,255,0.12)", "rgba(13,20,39,0.98)"]} style={styles.purchaseCard}>
+          <View style={styles.purchaseHeadingRow}>
+            <View style={styles.purchaseIcon}><Ionicons name="diamond" size={20} color="#F1BF50" /></View>
+            <View style={styles.purchaseHeadingCopy}>
+              <Text style={styles.purchaseEyebrow}>{t(premiumExperienceCopy.plansEyebrow, language)}</Text>
+              <Text style={styles.purchaseTitle}>{t(account.isPremium ? premiumExperienceCopy.plansTitle : premiumExperienceCopy.purchaseTitle, language)}</Text>
+            </View>
           </View>
-        )
-      },
+          <Text style={styles.purchaseBody}>{t(account.isPremium ? premiumExperienceCopy.plansBody : premiumExperienceCopy.purchaseBody, language)}</Text>
+          <PremiumPlansSection language={language} theme={theme} isPremium={account.isPremium} statusTextStyle={styles.status} />
+        </LinearGradient>
+      )
+    };
+    const quickBenefits: AppChromeVirtualizedItem = { key: "quick-benefits", content: <QuickBenefits language={language} styles={styles} /> };
+    const result: AppChromeVirtualizedItem[] = [
+      ...(account.isPremium ? [hero, quickBenefits, plans] : [plans, hero, quickBenefits]),
       {
         key: "numbers",
         content: <NumbersSection detailsVisible={detailsVisible} onToggle={() => setDetailsVisible((visible) => !visible)} language={language} styles={styles} />
@@ -221,6 +224,13 @@ function createStyles(colors: ReturnType<typeof getThemeColors>, compact: boolea
   const contentWidth = tablet ? 760 : undefined;
   return StyleSheet.create({
     hero: { width: "100%", maxWidth: contentWidth, alignSelf: "center", minHeight: compact ? 300 : 322, borderRadius: 24, borderWidth: 1, borderColor: "rgba(241,191,80,0.34)", paddingHorizontal: compact ? 19 : 25, paddingVertical: compact ? 25 : 31, justifyContent: "center", alignItems: "flex-start", overflow: "hidden", gap: 12 },
+    purchaseCard: { width: "100%", maxWidth: contentWidth, alignSelf: "center", borderRadius: 22, borderWidth: 1, borderColor: "rgba(241,191,80,0.34)", paddingHorizontal: compact ? 16 : 21, paddingVertical: compact ? 18 : 22, overflow: "hidden" },
+    purchaseHeadingRow: { flexDirection: "row", alignItems: "center", gap: 11 },
+    purchaseIcon: { width: 42, height: 42, borderRadius: 13, borderWidth: 1, borderColor: "rgba(241,191,80,0.34)", backgroundColor: "rgba(241,191,80,0.1)", alignItems: "center", justifyContent: "center" },
+    purchaseHeadingCopy: { flex: 1, minWidth: 0, gap: 2 },
+    purchaseEyebrow: { color: "#F1BF50", fontSize: 9.5, lineHeight: 13, fontWeight: "900", letterSpacing: 1.25 },
+    purchaseTitle: { color: colors.ivory, fontSize: compact ? 22 : 25, lineHeight: compact ? 27 : 31, fontWeight: "900" },
+    purchaseBody: { color: colors.muted, fontSize: 12.5, lineHeight: 19, fontWeight: "600", marginTop: 10, maxWidth: 620 },
     galleryFrame: { position: "absolute", width: compact ? 154 : 184, height: compact ? 220 : 250, right: -35, top: 35, borderWidth: 1, borderColor: "rgba(241,191,80,0.18)", borderRadius: 90, transform: [{ rotate: "10deg" }] },
     galleryFrameInner: { position: "absolute", width: compact ? 115 : 138, height: compact ? 176 : 202, right: -11, top: 58, borderWidth: 1, borderColor: "rgba(142,124,255,0.2)", borderRadius: 70, transform: [{ rotate: "10deg" }] },
     heroTopRow: { flexDirection: "row", alignItems: "center", gap: 10, maxWidth: "82%" },

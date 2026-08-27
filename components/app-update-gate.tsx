@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PropsWithChildren, useCallback, useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
 import * as Application from "expo-application";
@@ -7,29 +8,43 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getThemeColors } from "@/constants/theme";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
-import { loadAppVersionConfig } from "@/src/services/firebase/app-version-service";
-import { resumeAndroidImmediateUpdate, startAndroidImmediateUpdate } from "@/src/services/platform/android-in-app-update";
-import { isAppVersionOlder } from "@/utils/app-version";
 import { useStartupPhase } from "@/hooks/use-startup-phase";
+import {
+  loadCachedAppUpdateConfig,
+  loadRemoteAppUpdateConfig,
+  subscribeAppUpdateConfig
+} from "@/src/services/firebase/app-update-service";
+import {
+  parseNativeBuild,
+  shouldPresentAppUpdate,
+  type AppUpdateConfig,
+  type AppUpdatePlatform
+} from "@/firebase/shared/app-update";
 
-type UpdateState = { required: boolean; optional: boolean; storeUrl: string; latestVersion: string };
+type UpdateState = AppUpdateConfig & { required: boolean; installedVersion: string };
+
+const DISMISS_PREFIX = "art-atlas:app-update-dismissed";
+const DISMISS_DURATION_MS = 12 * 60 * 60 * 1000;
 
 const copy = {
-  title: { tr: "Yeni Güncelleme Hazır", en: "A New Update Is Ready", ru: "Доступно обновление", uz: "Yangi yangilanish tayyor" },
-  body: {
-    tr: "Art Atlas'ın yeni sürümü kullanıma hazır. Devam etmek için uygulamayı güncellemeniz gerekiyor.",
-    en: "A new version of Art Atlas is ready. Update the app to continue.",
-    ru: "Доступна новая версия Art Atlas. Обновите приложение, чтобы продолжить.",
-    uz: "Art Atlas'ning yangi versiyasi tayyor. Davom etish uchun ilovani yangilang."
+  eyebrowOptional: { tr: "ART ATLAS · YENİ SÜRÜM", en: "ART ATLAS · NEW VERSION", ru: "ART ATLAS · НОВАЯ ВЕРСИЯ", uz: "ART ATLAS · YANGI VERSIYA" },
+  eyebrowRequired: { tr: "ART ATLAS · GÜNCELLEME GEREKLİ", en: "ART ATLAS · UPDATE REQUIRED", ru: "ART ATLAS · ТРЕБУЕТСЯ ОБНОВЛЕНИЕ", uz: "ART ATLAS · YANGILASH ZARUR" },
+  titleOptional: { tr: "Yeni bir keşif seni bekliyor.", en: "A new discovery awaits you.", ru: "Вас ждёт новое открытие.", uz: "Sizni yangi kashfiyot kutmoqda." },
+  titleRequired: { tr: "Yolculuğa devam etmek için Art Atlas'ı güncelle.", en: "Update Art Atlas to continue your journey.", ru: "Обновите Art Atlas, чтобы продолжить путешествие.", uz: "Sayohatni davom ettirish uchun Art Atlas'ni yangilang." },
+  bodyOptional: {
+    tr: "Art Atlas'ın yeni sürümü hazır. Yeni özellikler ve iyileştirmeler için uygulamanı güncelle.",
+    en: "A new Art Atlas version is ready. Update for the latest features and improvements.",
+    ru: "Доступна новая версия Art Atlas. Обновитесь, чтобы получить новые функции и улучшения.",
+    uz: "Art Atlas'ning yangi versiyasi tayyor. Yangi imkoniyatlar va yaxshilanishlar uchun ilovani yangilang."
   },
-  optionalBody: {
-    tr: "Art Atlas'ın yeni sürümü kullanıma hazır. En yeni özellikler için şimdi güncelleyebilirsiniz.",
-    en: "A new Art Atlas version is ready. Update now for the latest improvements.",
-    ru: "Доступна новая версия Art Atlas. Обновитесь, чтобы получить последние улучшения.",
-    uz: "Art Atlas'ning yangi versiyasi tayyor. So'nggi yaxshilanishlar uchun yangilang."
+  bodyRequired: {
+    tr: "Kullandığın sürüm artık desteklenmiyor. Devam etmek için en güncel Art Atlas sürümünü yükle.",
+    en: "Your version is no longer supported. Install the latest Art Atlas version to continue.",
+    ru: "Ваша версия больше не поддерживается. Установите последнюю версию Art Atlas, чтобы продолжить.",
+    uz: "Siz foydalanayotgan versiya endi qo'llab-quvvatlanmaydi. Davom etish uchun eng so'nggi Art Atlas versiyasini o'rnating."
   },
-  update: { tr: "UYGULAMAYI GÜNCELLE", en: "UPDATE APP", ru: "ОБНОВИТЬ", uz: "ILOVANI YANGILASH" },
-  starting: { tr: "GÜNCELLEME BAŞLATILIYOR", en: "STARTING UPDATE", ru: "ЗАПУСК ОБНОВЛЕНИЯ", uz: "YANGILANISH BOSHLANMOQDA" },
+  update: { tr: "Güncelle", en: "Update", ru: "Обновить", uz: "Yangilash" },
+  opening: { tr: "Mağaza açılıyor", en: "Opening store", ru: "Открываем магазин", uz: "Do'kon ochilmoqda" },
   later: { tr: "Daha Sonra", en: "Later", ru: "Позже", uz: "Keyinroq" }
 } as const;
 
@@ -38,63 +53,104 @@ export function AppUpdateGate({ children }: PropsWithChildren) {
   const { theme } = useAppTheme();
   const colors = getThemeColors(theme);
   const insets = useSafeAreaInsets();
-  const dismissedVersion = useRef("");
-  const checking = useRef(false);
-  const lastCheckedAt = useRef(0);
-  const [update, setUpdate] = useState<UpdateState | null>(null);
-  const [startingUpdate, setStartingUpdate] = useState(false);
   const startupPhase = useStartupPhase();
+  const refreshing = useRef(false);
+  const evaluationRevision = useRef(0);
+  const componentMounted = useRef(true);
+  const [update, setUpdate] = useState<UpdateState | null>(null);
+  const [openingStore, setOpeningStore] = useState(false);
+  const platform = nativePlatform();
 
-  const checkVersion = useCallback(async () => {
-    if (Platform.OS !== "ios" && Platform.OS !== "android") return;
-    if (checking.current) return;
-    if (Date.now() - lastCheckedAt.current < 15 * 60 * 1000) return;
-    checking.current = true;
-    const config = await loadAppVersionConfig().finally(() => {
-      checking.current = false;
-      lastCheckedAt.current = Date.now();
+  const applyConfig = useCallback(async (config: AppUpdateConfig | null, remoteVerified: boolean) => {
+    if (!componentMounted.current) return;
+    const revision = ++evaluationRevision.current;
+    if (!platform || !config) {
+      setUpdate(null);
+      return;
+    }
+    const installedBuild = parseNativeBuild(Application.nativeBuildVersion ?? Constants.nativeBuildVersion);
+    const decision = shouldPresentAppUpdate(config, platform, installedBuild, remoteVerified);
+    if (!decision) {
+      setUpdate(null);
+      return;
+    }
+    if (!decision.required && await wasDismissedRecently(platform, config.build)) {
+      if (!componentMounted.current || revision !== evaluationRevision.current) return;
+      setUpdate(null);
+      return;
+    }
+    if (!componentMounted.current || revision !== evaluationRevision.current) return;
+    setUpdate({
+      ...config,
+      required: decision.required,
+      installedVersion: Application.nativeApplicationVersion ?? Constants.nativeAppVersion ?? ""
     });
-    if (!config) return;
+  }, [platform]);
 
-    const installed = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? "0.0.0";
-    const ios = Platform.OS === "ios";
-    const latestVersion = ios ? config.iosLatestVersion : config.androidLatestVersion;
-    const minimumVersion = ios ? config.iosMinimumVersion : config.androidMinimumVersion;
-    const forceUpdate = ios ? config.iosForceUpdate : config.androidForceUpdate;
-    const storeUrl = ios ? config.iosStoreUrl : config.androidStoreUrl;
-    const belowMinimum = isAppVersionOlder(installed, minimumVersion);
-    const required = belowMinimum || (forceUpdate && isAppVersionOlder(installed, latestVersion));
-    const optional = !required && isAppVersionOlder(installed, latestVersion) && dismissedVersion.current !== latestVersion;
-    setUpdate(required || optional ? { required, optional, storeUrl, latestVersion } : null);
-    if (required && Platform.OS === "android") void resumeAndroidImmediateUpdate();
+  useEffect(() => () => {
+    componentMounted.current = false;
   }, []);
 
-  const beginUpdate = useCallback(async () => {
-    if (!update || startingUpdate) return;
-    setStartingUpdate(true);
-    try {
-      if (Platform.OS === "android" && await startAndroidImmediateUpdate()) return;
-      const nativeStoreUrl = Platform.OS === "android"
-        ? "market://details?id=com.artatlas.app"
-        : "itms-apps://itunes.apple.com/app/id6792671640";
-      await Linking.openURL(nativeStoreUrl).catch(() => Linking.openURL(update.storeUrl));
-    } catch (error) {
-      if (__DEV__) console.warn("[version-control] update flow failed", error);
-    } finally {
-      setStartingUpdate(false);
-    }
-  }, [startingUpdate, update]);
+  const refreshFromServer = useCallback(async () => {
+    if (!platform || refreshing.current) return;
+    refreshing.current = true;
+    await loadRemoteAppUpdateConfig(platform)
+      .then((config) => applyConfig(config, true))
+      .catch(() => {
+        if (componentMounted.current) setUpdate(null);
+      })
+      .finally(() => {
+        refreshing.current = false;
+      });
+  }, [applyConfig, platform]);
 
   useEffect(() => {
-    if (startupPhase === "critical") return;
-    void checkVersion();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void checkVersion();
+    if (!platform || __DEV__ || startupPhase === "critical") return;
+    let mounted = true;
+    void loadCachedAppUpdateConfig(platform).then((config) => {
+      if (mounted && config?.updateType === "optional") void applyConfig(config, false);
     });
-    return () => subscription.remove();
-  }, [checkVersion, startupPhase]);
+    const unsubscribe = subscribeAppUpdateConfig(
+      platform,
+      (config, remoteVerified) => {
+        if (mounted) void applyConfig(config, remoteVerified);
+      },
+      () => {
+        if (mounted) setUpdate(null);
+      }
+    );
+    const appState = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refreshFromServer();
+    });
+    return () => {
+      mounted = false;
+      unsubscribe();
+      appState.remove();
+    };
+  }, [applyConfig, platform, refreshFromServer, startupPhase]);
+
+  const dismiss = useCallback(async () => {
+    if (!platform || !update || update.required) return;
+    await AsyncStorage.setItem(
+      `${DISMISS_PREFIX}:${platform}`,
+      JSON.stringify({ build: update.build, dismissedAt: Date.now() })
+    ).catch(() => undefined);
+    setUpdate(null);
+  }, [platform, update]);
+
+  const beginUpdate = useCallback(async () => {
+    if (!update || openingStore) return;
+    setOpeningStore(true);
+    await Linking.openURL(update.storeUrl)
+      .catch((error) => {
+        if (__DEV__) console.warn("[app-update] store could not be opened", error);
+      })
+      .finally(() => setOpeningStore(false));
+  }, [openingStore, update]);
 
   const required = update?.required === true;
+  const title = update?.title[language] || update?.title.tr || (required ? copy.titleRequired : copy.titleOptional)[language];
+  const body = update?.message[language] || update?.message.tr || (required ? copy.bodyRequired : copy.bodyOptional)[language];
 
   return (
     <>
@@ -105,36 +161,28 @@ export function AppUpdateGate({ children }: PropsWithChildren) {
         animationType="fade"
         presentationStyle={required ? "fullScreen" : "overFullScreen"}
         onRequestClose={() => {
-          if (!required && update) {
-            dismissedVersion.current = update.latestVersion;
-            setUpdate(null);
-          }
+          if (!required) void dismiss();
         }}
       >
         <View style={[styles.backdrop, required && { backgroundColor: colors.ink }, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]}>
           <View style={[styles.panel, { backgroundColor: colors.panel, borderColor: colors.line }]}>
+            <Text style={[styles.eyebrow, { color: colors.gold }]}>{(required ? copy.eyebrowRequired : copy.eyebrowOptional)[language]}</Text>
             <View style={[styles.icon, { backgroundColor: colors.panelSoft, borderColor: colors.line }]}>
-              <Ionicons name="cloud-download-outline" size={36} color={colors.gold} />
+              <Ionicons name="cloud-download-outline" size={34} color={colors.gold} />
             </View>
-            <Text style={[styles.title, { color: colors.ivory }]}>{copy.title[language]}</Text>
-            <Text style={[styles.body, { color: colors.muted }]}>{(required ? copy.body : copy.optionalBody)[language]}</Text>
+            <Text style={[styles.title, { color: colors.ivory }]}>{title}</Text>
+            <Text style={[styles.body, { color: colors.muted }]}>{body}</Text>
+            {update ? <Text style={[styles.version, { color: colors.gold }]}>{update.installedVersion || "—"} → {update.version}</Text> : null}
             <Pressable
               accessibilityRole="button"
-              disabled={startingUpdate}
+              disabled={openingStore}
               onPress={() => void beginUpdate()}
-              style={[styles.updateButton, { backgroundColor: colors.gold }, startingUpdate && styles.updateButtonBusy]}
+              style={[styles.updateButton, { backgroundColor: colors.gold }, openingStore && styles.updateButtonBusy]}
             >
-              <Text style={[styles.updateText, { color: colors.ink }]}>{(startingUpdate ? copy.starting : copy.update)[language]}</Text>
+              <Text style={[styles.updateText, { color: colors.ink }]}>{(openingStore ? copy.opening : copy.update)[language]}</Text>
             </Pressable>
-            {!required && update ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  dismissedVersion.current = update.latestVersion;
-                  setUpdate(null);
-                }}
-                style={styles.laterButton}
-              >
+            {!required ? (
+              <Pressable accessibilityRole="button" onPress={() => void dismiss()} style={styles.laterButton}>
                 <Text style={[styles.laterText, { color: colors.muted }]}>{copy.later[language]}</Text>
               </Pressable>
             ) : null}
@@ -145,15 +193,35 @@ export function AppUpdateGate({ children }: PropsWithChildren) {
   );
 }
 
+function nativePlatform(): AppUpdatePlatform | null {
+  if (Platform.OS === "ios" || Platform.OS === "android") return Platform.OS;
+  return null;
+}
+
+async function wasDismissedRecently(platform: AppUpdatePlatform, build: number) {
+  const stored = await AsyncStorage.getItem(`${DISMISS_PREFIX}:${platform}`).catch(() => null);
+  if (!stored) return false;
+  try {
+    const dismissal = JSON.parse(stored) as { build?: unknown; dismissedAt?: unknown };
+    return parseNativeBuild(dismissal.build) === build
+      && typeof dismissal.dismissedAt === "number"
+      && Date.now() - dismissal.dismissedAt < DISMISS_DURATION_MS;
+  } catch {
+    return false;
+  }
+}
+
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.78)", alignItems: "center", justifyContent: "center", paddingHorizontal: 22 },
   panel: { width: "100%", maxWidth: 440, borderRadius: 18, borderWidth: 1, alignItems: "center", padding: 24 },
-  icon: { width: 72, height: 72, borderRadius: 36, borderWidth: 1, alignItems: "center", justifyContent: "center", marginBottom: 18 },
-  title: { fontSize: 23, lineHeight: 29, fontWeight: "900", textAlign: "center" },
+  eyebrow: { fontSize: 11, lineHeight: 16, fontWeight: "800", letterSpacing: 1.1, textAlign: "center", marginBottom: 14 },
+  icon: { width: 68, height: 68, borderRadius: 34, borderWidth: 1, alignItems: "center", justifyContent: "center", marginBottom: 16 },
+  title: { fontSize: 22, lineHeight: 29, fontWeight: "900", textAlign: "center" },
   body: { fontSize: 15, lineHeight: 23, fontWeight: "600", textAlign: "center", marginTop: 10 },
-  updateButton: { width: "100%", minHeight: 52, borderRadius: 999, alignItems: "center", justifyContent: "center", marginTop: 24, paddingHorizontal: 16 },
+  version: { fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 14 },
+  updateButton: { width: "100%", minHeight: 52, borderRadius: 999, alignItems: "center", justifyContent: "center", marginTop: 22, paddingHorizontal: 16 },
   updateButtonBusy: { opacity: 0.72 },
-  updateText: { fontSize: 14, fontWeight: "900", letterSpacing: 0.3 },
+  updateText: { fontSize: 14, fontWeight: "900", letterSpacing: 0.2 },
   laterButton: { minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 18, marginTop: 6 },
   laterText: { fontSize: 14, fontWeight: "800" }
 });

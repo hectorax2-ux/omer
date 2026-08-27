@@ -971,7 +971,6 @@ function SocialIconRow({ links, styles, colors, onPress, language }: {
     x: string;
     facebook: string;
     website: string;
-    email: string;
   };
   styles: ReturnType<typeof createStyles>;
   colors: ReturnType<typeof getThemeColors>;
@@ -982,8 +981,7 @@ function SocialIconRow({ links, styles, colors, onPress, language }: {
     { key: "instagram", icon: "logo-instagram" as const, value: links.instagram },
     { key: "x", icon: "logo-twitter" as const, value: links.x },
     { key: "facebook", icon: "logo-facebook" as const, value: links.facebook },
-    { key: "website", icon: "globe-outline" as const, value: links.website },
-    { key: "email", icon: "mail-outline" as const, value: links.email }
+    { key: "website", icon: "globe-outline" as const, value: links.website }
   ].filter((item) => item.value.trim());
 
   if (!items.length) {
@@ -1012,7 +1010,6 @@ function SocialLinksModal({ visible, onClose, links, styles, colors, language }:
     x: string;
     facebook: string;
     website: string;
-    email: string;
   };
   styles: ReturnType<typeof createStyles>;
   colors: ReturnType<typeof getThemeColors>;
@@ -1022,8 +1019,7 @@ function SocialLinksModal({ visible, onClose, links, styles, colors, language }:
     { label: "Instagram", value: links.instagram ? `instagram.com/${links.instagram.replace(/^@/, "")}` : "", icon: "logo-instagram" as const },
     { label: "X / Twitter", value: links.x ? `x.com/${links.x.replace(/^@/, "")}` : "", icon: "logo-twitter" as const },
     { label: "Facebook", value: links.facebook ? `facebook.com/${links.facebook.replace(/^@/, "")}` : "", icon: "logo-facebook" as const },
-    { label: "Website", value: links.website, icon: "globe-outline" as const },
-    { label: "E-posta", value: links.email, icon: "mail-outline" as const }
+    { label: "Website", value: links.website, icon: "globe-outline" as const }
   ].filter((row) => row.value.trim());
 
   return (

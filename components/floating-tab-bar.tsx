@@ -101,7 +101,10 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
         showImmediateSelection(route.key);
         transitionRequest.current = beginNavigationTransition(navigationLocationKey(pathname, params), compactLabel);
       }} onPress={onPress} style={styles.tab}>
-        {selected ? <LinearGradient colors={[v2Colors.primary, v2Colors.violet]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.activePill} /> : null}
+        {selected ? Platform.OS === "android"
+          ? <View style={styles.activePill} />
+          : <LinearGradient colors={[v2Colors.primary, v2Colors.violet]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.activePill} />
+          : null}
         <View style={styles.tabInner}>
           <View style={styles.iconWrap}>
             <Ionicons

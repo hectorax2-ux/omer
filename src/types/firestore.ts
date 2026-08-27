@@ -54,7 +54,6 @@ export type BaseDocument = {
 export type UserProfileDocument = BaseDocument & {
   uid: string;
   username: string;
-  email: string;
   displayName: string;
   photoURL: string;
   role: UserRole;
@@ -69,7 +68,6 @@ export type UserProfileDocument = BaseDocument & {
     x: string;
     facebook: string;
     website: string;
-    email: string;
   };
   systemBadges: SystemBadgeId[];
   adminBadges: AdminBadgeId[];

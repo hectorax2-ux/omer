@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { FlatList, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
@@ -90,7 +91,7 @@ function AuthenticatedJourneyScreen() {
                 <View style={[styles.timeline, index === home.journeyExperience.stages.length - 1 && styles.timelineLast]} pointerEvents="none"><LinearGradient colors={[palette.end, "rgba(255,255,255,0.08)"]} style={StyleSheet.absoluteFill} /></View>
                 <View style={styles.orbColumn}><JourneyOrb stage={item} eraId={chapter?.eraId} size={compact ? 54 : 60} fallbackImageUri={chapterImages.get(item.chapterId)} onPress={() => openStage(item)} /></View>
                 <View style={[styles.stageContent, item.state === "current" && styles.stageCurrent]}>
-                  {item.state === "current" ? <LinearGradient colors={["rgba(67,56,202,0.2)", "rgba(126,34,206,0.09)", "transparent"]} style={StyleSheet.absoluteFill} /> : null}
+                  {item.state === "current" ? <ClippedGradient colors={["rgba(67,56,202,0.2)", "rgba(126,34,206,0.09)", "transparent"]} androidColors={["rgba(67,56,202,0.16)", "rgba(126,34,206,0.05)"]} radius={radii.lg} /> : null}
                   <View style={styles.stageLabels}><Text style={[styles.stateText, { color: palette.end }]}>{journeyStateText(item.state, language)}</Text><Text style={styles.difficulty}>{difficultyText(item.difficulty, language)}</Text></View>
                   <Text style={styles.stageTitle} numberOfLines={2}>{item.activity.title}</Text>
                   <Text style={styles.stageSubtitle} numberOfLines={2}>{item.activity.subtitle}</Text>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -237,7 +238,12 @@ function PortraitCard({ user, width, index, featured = false, language, reducedM
     <Animated.View style={{ width, opacity: entrance, transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }, { scale: Animated.multiply(entrance.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1] }), pressScale) }] }}>
       <Pressable onPress={onPress} onPressIn={() => Animated.spring(pressScale, { toValue: 0.97, speed: 32, bounciness: 0, useNativeDriver: true }).start()} onPressOut={() => Animated.spring(pressScale, { toValue: 1, speed: 24, bounciness: 7, useNativeDriver: true }).start()} style={[styles.portraitCard, featured && styles.featuredCard]} accessibilityRole="button" accessibilityLabel={`${user.name}, @${user.username}`}>
         <ProfileAvatar uri={user.image} size={imageSize} borderRadius={20} style={styles.portraitImage} />
-        <LinearGradient colors={["rgba(8,12,30,0.02)", "rgba(8,12,30,0.42)", "rgba(8,12,30,0.98)"]} locations={[0.28, 0.58, 1]} style={StyleSheet.absoluteFill} />
+        <ClippedGradient
+          colors={["rgba(8,12,30,0.02)", "rgba(8,12,30,0.42)", "rgba(8,12,30,0.98)"]}
+          androidColors={["rgba(8,12,30,0.08)", "rgba(8,12,30,0.98)"]}
+          locations={[0.28, 0.58, 1]}
+          radius={20}
+        />
         <View style={styles.cardHighlight} />
         <View style={styles.portraitInfo}>
           <View style={styles.rolePill}>

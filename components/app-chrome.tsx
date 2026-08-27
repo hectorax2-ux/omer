@@ -3,6 +3,7 @@ import { Animated, Easing, FlatList, Image, Keyboard, KeyboardAvoidingView, Link
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { UserRoleId } from "@/constants/profile-taxonomy";
 import { AppTheme, colors, getThemeColors, isBrightTheme } from "@/constants/theme";
@@ -419,7 +420,7 @@ function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, label, 
           pressed && styles.floatingPillPressed
         ]}
       >
-        <LinearGradient colors={gradient} start={{ x: 0.06, y: 0.08 }} end={{ x: 0.94, y: 0.92 }} style={StyleSheet.absoluteFill} pointerEvents="none" />
+        {Platform.OS === "android" ? null : <ClippedGradient colors={gradient} start={{ x: 0.06, y: 0.08 }} end={{ x: 0.94, y: 0.92 }} radius={18} pointerEvents="none" />}
         <View pointerEvents="none" style={[styles.floatingPillHoverWash, violet ? styles.floatingPillHoverWashViolet : styles.floatingPillHoverWashGold, hovered && styles.floatingPillHoverWashVisible]} />
         {children}
         <Text numberOfLines={1} maxFontSizeMultiplier={1.15} style={styles.floatingPillLabel}>{label}</Text>
@@ -826,7 +827,10 @@ function BottomDock({ themeColors, pathname, onActiveTabPress, theme, onNavigate
             <Pressable accessibilityRole="tab" accessibilityLabel={dockLabel(item.path, language)} accessibilityState={{ selected: active }} key={item.path} onPressIn={() => {
               if (!routeActive) showImmediateSelection(item.path);
             }} onPress={() => routeActive ? onActiveTabPress() : onNavigate(() => router.push(item.path as never))} style={styles.bottomDockButton}>
-              {active ? <LinearGradient colors={[v2Colors.primary, v2Colors.violet]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.bottomDockActivePill} /> : null}
+              {active ? Platform.OS === "android"
+                ? <View style={styles.bottomDockActivePill} />
+                : <LinearGradient colors={[v2Colors.primary, v2Colors.violet]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.bottomDockActivePill} />
+                : null}
               <View style={styles.bottomDockIconWrap}>
                 <Ionicons name={active ? item.icon : `${item.icon}-outline` as keyof typeof Ionicons.glyphMap} size={21} color={active ? activeTone : themeColors.muted} />
                 {item.path === "/messages" && messageBadgeCount > 0 ? (
@@ -1135,10 +1139,12 @@ const styles = StyleSheet.create({
     cursor: "pointer"
   },
   floatingPillViolet: {
-    borderColor: "rgba(208,205,255,0.28)"
+    borderColor: "rgba(208,205,255,0.28)",
+    backgroundColor: "#373277"
   },
   floatingPillGold: {
-    borderColor: "rgba(242,217,151,0.3)"
+    borderColor: "rgba(242,217,151,0.3)",
+    backgroundColor: "#493A20"
   },
   floatingPillLabel: {
     color: "#FFFDF8",
@@ -1241,7 +1247,8 @@ const styles = StyleSheet.create({
   bottomDockActivePill: {
     ...StyleSheet.absoluteFillObject,
     margin: 2,
-    borderRadius: 999
+    borderRadius: 999,
+    backgroundColor: v2Colors.primary
   },
   bottomDockIconWrap: {
     width: 28,

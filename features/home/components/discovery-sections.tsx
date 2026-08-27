@@ -1,8 +1,9 @@
 import { memo, useMemo } from "react";
-import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Platform, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { EqualHeightHeaderSlot } from "@/components/ui/equal-height-header-slot";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { homeCopy } from "@/app/i18n/common";
@@ -84,22 +85,24 @@ function ArtworkActionCard({ item, styles, width, height, gameCard, compactGameC
       accessibilityLabel={`${item.title}. ${item.subtitle}`}
     >
       <HomeImage uri={item.image} imageFocus={item.imageFocus} style={styles.actionArtwork} contentFit="cover" transition={180} showFallbackIcon={false} imageVariant="thumbnail" />
-      <View style={[StyleSheet.absoluteFill, accentWash(item.accent)]} pointerEvents="none" />
-      <LinearGradient
+      {Platform.OS === "android" ? null : <View style={[styles.actionOverlay, accentWash(item.accent)]} pointerEvents="none" />}
+      <ClippedGradient
         colors={actionGradient(item.accent)}
+        androidColors={androidActionGradient(item.accent)}
         start={{ x: 0, y: 1 }}
         end={{ x: 1, y: 0 }}
-        style={StyleSheet.absoluteFill}
+        radius={radii.lg}
         pointerEvents="none"
       />
-      <LinearGradient
+      <ClippedGradient
         colors={gameCard ? ["rgba(5,8,20,0.9)", "rgba(5,8,20,0.12)"] : ["rgba(5,8,20,0.15)", "rgba(5,8,20,0.93)"]}
+        androidColors={gameCard ? ["rgba(5,8,20,0.88)", "rgba(5,8,20,0.2)"] : ["rgba(5,8,20,0.22)", "rgba(5,8,20,0.94)"]}
         start={gameCard ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 }}
         end={gameCard ? { x: 1, y: 0.5 } : { x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFill}
+        radius={radii.lg}
         pointerEvents="none"
       />
-      <View style={[styles.actionIllumination, accentIllumination(item.accent)]} pointerEvents="none" />
+      {Platform.OS === "android" ? null : <View style={[styles.actionIllumination, accentIllumination(item.accent)]} pointerEvents="none" />}
       <View style={styles.actionTopEdge} pointerEvents="none" />
 
       <View style={[styles.actionIcon, compactGameCard && styles.compactGameIcon, accentIcon(item.accent)]}>
@@ -259,7 +262,7 @@ function EditorialCard({ theme, image, icon, title, subtitle, reason, actionLabe
   return (
     <PressableScale onPress={onPress} style={styles.editorialCard} accessibilityLabel={`${title}. ${actionLabel}`}>
       {image ? <HomeImage uri={image} style={styles.editorialImage} contentFit="cover" transition={220} /> : <View style={styles.editorialFallback}><Ionicons name={icon} size={28} color="#E6C87C" /></View>}
-      <LinearGradient colors={["rgba(6,8,20,0.04)", "rgba(6,8,20,0.94)"]} style={StyleSheet.absoluteFill} pointerEvents="none" />
+      <ClippedGradient colors={["rgba(6,8,20,0.04)", "rgba(6,8,20,0.94)"]} androidColors={["rgba(6,8,20,0.08)", "rgba(6,8,20,0.95)"]} radius={radii.lg} pointerEvents="none" />
       <View style={styles.editorialBody}>
         <Text style={styles.editorialReason} numberOfLines={1}>{reason}</Text>
         <Text style={styles.editorialTitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.88}>{title}</Text>
@@ -288,6 +291,13 @@ function actionGradient(accent: HomeActionItem["accent"]): readonly [string, str
   if (accent === "pink") return ["rgba(24,7,20,0.96)", "rgba(91,17,50,0.74)", "rgba(214,46,134,0.2)"];
   if (accent === "gold") return ["rgba(20,15,13,0.96)", "rgba(78,55,23,0.75)", "rgba(243,189,78,0.18)"];
   return ["rgba(10,8,26,0.96)", "rgba(49,20,91,0.74)", "rgba(109,53,213,0.2)"];
+}
+
+function androidActionGradient(accent: HomeActionItem["accent"]): readonly [string, string] {
+  if (accent === "blue") return ["rgba(8,14,32,0.96)", "rgba(36,81,198,0.2)"];
+  if (accent === "pink") return ["rgba(26,8,22,0.96)", "rgba(214,46,134,0.16)"];
+  if (accent === "gold") return ["rgba(23,18,15,0.96)", "rgba(184,137,45,0.16)"];
+  return ["rgba(12,9,29,0.96)", "rgba(109,53,213,0.18)"];
 }
 
 function accentIcon(accent: HomeActionItem["accent"]) {
@@ -335,6 +345,7 @@ function createStyles(theme: AppTheme) {
     gameCard: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
     compactGameCard: { paddingHorizontal: 11, gap: 8 },
     actionArtwork: { ...StyleSheet.absoluteFillObject, transform: [{ scale: 1.035 }] },
+    actionOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: radii.lg },
     actionIllumination: { position: "absolute", right: -18, top: -30, width: 96, height: 96, borderRadius: 48 },
     actionTopEdge: { position: "absolute", top: 0, left: 18, right: 18, height: 1, backgroundColor: "rgba(255,255,255,0.2)" },
     actionIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center", shadowOpacity: 0.24, shadowRadius: 7, shadowOffset: { width: 0, height: 0 }, elevation: 2 },

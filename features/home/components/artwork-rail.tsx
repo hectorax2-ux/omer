@@ -1,7 +1,7 @@
 import { Animated, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useRef } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { homeLayout, radii, v2Colors } from "@/constants/design";
@@ -107,7 +107,7 @@ function CuratorArtworkCard({ item, reason, curator, onOpen, styles }: { item: H
       <Animated.View style={[styles.imageMotion, { transform: [{ scale: press.interpolate({ inputRange: [0, 1], outputRange: [1, 1.025] }) }, { translateY: press.interpolate({ inputRange: [0, 1], outputRange: [0, 2] }) }] }]}>
         <HomeImage uri={item.image} style={styles.image} contentFit="cover" imageVariant="thumbnail" transition={220} />
       </Animated.View>
-      <LinearGradient colors={["rgba(6,7,18,0.02)", "rgba(6,7,18,0.94)"]} style={styles.scrim} pointerEvents="none" />
+      <ClippedGradient colors={["rgba(6,7,18,0.02)", "rgba(6,7,18,0.94)"]} androidColors={["rgba(6,7,18,0.08)", "rgba(6,7,18,0.95)"]} radius={radii.lg} style={styles.scrim} pointerEvents="none" />
       <View style={[styles.reasonPill, curator && styles.curatorTag]}>
         <Ionicons name="sparkles" size={10} color="#F3D28B" />
         <Text style={styles.reason} numberOfLines={1}>{reason}</Text>

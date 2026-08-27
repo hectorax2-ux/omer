@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
@@ -332,7 +333,7 @@ function ArtistRecipientCard({
 }) {
   return (
     <PressableScale disabled={Boolean(artist) && !canChange} onPress={onOpen} style={styles.recipient} wrapStyle={{ width: "100%" }}>
-      <LinearGradient colors={[hexAlpha(colors.panelSoft, 0.95), hexAlpha(colors.navy, 0.88)]} end={{ x: 1, y: 1 }} start={{ x: 0, y: 0 }} style={StyleSheet.absoluteFill} />
+      <ClippedGradient colors={[hexAlpha(colors.panelSoft, 0.95), hexAlpha(colors.navy, 0.88)]} androidColors={[hexAlpha(colors.panelSoft, 0.98), hexAlpha(colors.navy, 0.94)]} end={{ x: 1, y: 1 }} start={{ x: 0, y: 0 }} radius={radii.md} />
       <View pointerEvents="none" style={[styles.surfaceShine, { backgroundColor: hexAlpha(colors.ivory, 0.08) }]} />
       {artist?.image ? (
         <CoverImage imageFocus={artist.imageFocus} source={{ uri: artist.image }} style={styles.portrait} />
@@ -390,7 +391,7 @@ function DigitalLetterSheet({
   const year = new Date().getFullYear();
   return (
     <View style={[styles.sheet, focused && styles.sheetFocused]}>
-      <LinearGradient colors={[hexAlpha(colors.panel, 0.98), hexAlpha(colors.navy, 0.94)]} end={{ x: 1, y: 1 }} start={{ x: 0, y: 0 }} style={StyleSheet.absoluteFill} />
+      <ClippedGradient colors={[hexAlpha(colors.panel, 0.98), hexAlpha(colors.navy, 0.94)]} androidColors={[hexAlpha(colors.panel, 1), hexAlpha(colors.navy, 0.96)]} end={{ x: 1, y: 1 }} start={{ x: 0, y: 0 }} radius={radii.lg} />
       <View pointerEvents="none" style={[styles.surfaceShine, { backgroundColor: hexAlpha(colors.ivory, 0.07) }]} />
       <View pointerEvents="none" style={[styles.corner, styles.cornerTl, { borderColor: hexAlpha(colors.gold, 0.28) }]} />
       <View pointerEvents="none" style={[styles.corner, styles.cornerBr, { borderColor: hexAlpha(colors.plum, 0.32) }]} />

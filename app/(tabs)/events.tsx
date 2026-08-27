@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
+import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
 import { ReadingSizeControl } from "@/components/ui/reading-size-control";
@@ -306,9 +306,9 @@ export default function EventsScreen() {
             contentFit="cover"
           />
         ) : (
-          <LinearGradient colors={activeKind === "film" ? ["#0C4A6E", "#312E81", "#070A12"] : ["#4C1D95", "#7E22CE", "#070A12"]} style={StyleSheet.absoluteFill} />
+          <ClippedGradient colors={activeKind === "film" ? ["#0C4A6E", "#312E81", "#070A12"] : ["#4C1D95", "#7E22CE", "#070A12"]} androidColors={activeKind === "film" ? ["#0C314A", "#101329"] : ["#321B5A", "#171024"]} radius={radii.xl} />
         )}
-        <LinearGradient colors={["rgba(7,10,18,0.06)", "rgba(7,10,18,0.56)", "rgba(7,10,18,0.98)"]} style={StyleSheet.absoluteFill} />
+        <ClippedGradient colors={["rgba(7,10,18,0.06)", "rgba(7,10,18,0.56)", "rgba(7,10,18,0.98)"]} androidColors={["rgba(7,10,18,0.12)", "rgba(7,10,18,0.98)"]} radius={radii.xl} />
         <View style={styles.heroGlow} pointerEvents="none" />
         <View style={styles.heroKindPill}>
           <Ionicons name={activeKind === "film" ? "film" : "book"} size={13} color={v2Colors.cyan} />
