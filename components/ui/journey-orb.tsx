@@ -6,6 +6,7 @@ import { PressableScale } from "@/components/ui/pressable-scale";
 import { HomeImage } from "@/features/home/components/home-image";
 import type { JourneyEraId, JourneyStageView } from "@/features/home/types";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 
 export function JourneyOrb({ stage, eraId, size, onPress, fallbackImageUri }: {
   stage: JourneyStageView;
@@ -15,6 +16,7 @@ export function JourneyOrb({ stage, eraId, size, onPress, fallbackImageUri }: {
   fallbackImageUri?: string;
 }) {
   const reducedMotion = useReducedMotion();
+  const performanceMode = useRuntimePerformanceMode();
   const pulse = useRef(new Animated.Value(0)).current;
   const current = stage.state === "current";
   const palette = journeyEraPalette(eraId ?? stage.activity.eraId);
@@ -22,7 +24,7 @@ export function JourneyOrb({ stage, eraId, size, onPress, fallbackImageUri }: {
 
   useEffect(() => {
     pulse.stopAnimation();
-    if (!current || reducedMotion) {
+    if (!current || reducedMotion || performanceMode !== "full") {
       pulse.setValue(0);
       return undefined;
     }
@@ -32,7 +34,7 @@ export function JourneyOrb({ stage, eraId, size, onPress, fallbackImageUri }: {
     ]));
     animation.start();
     return () => animation.stop();
-  }, [current, pulse, reducedMotion]);
+  }, [current, performanceMode, pulse, reducedMotion]);
 
   const orbSize = current ? size + 7 : size;
   return (

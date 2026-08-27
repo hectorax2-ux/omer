@@ -115,7 +115,7 @@ export function ArtworkOrbit({ items, activeIndex, size, onOpen }: {
           >
             <Animated.View style={[styles.satelliteAnchor, lightweight && styles.satelliteAnchorLightweight, { width: satelliteSize, height: satelliteSize, borderRadius: satelliteSize / 2, marginLeft: -satelliteSize / 2, transform: [{ scaleY: 1 / [0.72, 0.82, 0.62][index] }, { rotate: counterSpin }] }]}>
               <PressableScale onPress={() => onOpen(item.id)} wrapStyle={styles.satelliteWrap} style={styles.satelliteButton} accessibilityLabel={item.title}>
-                <HomeImage uri={item.image} style={styles.satelliteImage} contentFit="cover" transition={lightweight ? 0 : 180} />
+                <HomeImage uri={item.image} style={styles.satelliteImage} contentFit="cover" imageVariant="thumbnail" transition={lightweight ? 0 : 180} />
               </PressableScale>
             </Animated.View>
           </Animated.View>
@@ -130,7 +130,7 @@ export function ArtworkOrbit({ items, activeIndex, size, onOpen }: {
         accessibilityLabel={`${active.title}, ${active.artist}`}
       >
         <View style={[styles.mainRing, lightweight && styles.mainRingLightweight]}>
-          <HomeImage uri={active.image} style={styles.mainImage} contentFit="cover" transition={lightweight ? 0 : 260} />
+          <HomeImage uri={active.image} style={styles.mainImage} contentFit="cover" imageVariant="large" transition={lightweight ? 0 : 260} />
         </View>
       </PressableScale>
     </View>

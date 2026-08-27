@@ -11,6 +11,8 @@ import { useLanguage } from "@/hooks/use-language";
 import { useMessageBadgeCount } from "@/components/messages-tab-icon";
 import { beginPerformanceMarker, markPerformanceEvent } from "@/utils/performance";
 import { beginNavigationPerformanceLock } from "@/hooks/use-runtime-performance-mode";
+import { useGlobalSearchParams, usePathname } from "expo-router";
+import { beginNavigationTransition, completeNavigationTransition, navigationLocationKey } from "@/utils/navigation-transition-store";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -24,13 +26,7 @@ const routeIcons: Record<string, IconName> = {
   account: "person-circle"
 };
 
-type FloatingTabBarProps = BottomTabBarProps & {
-  onTransitionStart?: (routeKey: string, label: string) => void;
-  onTransitionReady?: (routeKey: string) => void;
-  onTransitionCancel?: (routeKey: string) => void;
-};
-
-export function FloatingTabBar({ state, descriptors, navigation, onTransitionStart, onTransitionReady, onTransitionCancel }: FloatingTabBarProps) {
+export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
   const { language } = useLanguage();
@@ -39,44 +35,28 @@ export function FloatingTabBar({ state, descriptors, navigation, onTransitionSta
   const styles = createStyles(theme, colors);
   const activeTone = "#ffffff";
   const [optimisticRouteKey, setOptimisticRouteKey] = useState<string | null>(null);
-  const optimisticResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestPressRouteKeyRef = useRef<string | null>(null);
+  const transitionRequest = useRef<number | null>(null);
+  const pathname = usePathname();
+  const params = useGlobalSearchParams<Record<string, string | string[]>>();
 
   const tabs = state.routes.filter((route) => visibleRoutes.has(route.name));
   const activeRouteKey = state.routes[state.index]?.key;
 
   useEffect(() => {
     if (optimisticRouteKey !== activeRouteKey) return;
-    onTransitionReady?.(activeRouteKey);
     setOptimisticRouteKey(null);
-    latestPressRouteKeyRef.current = null;
-    if (optimisticResetRef.current) clearTimeout(optimisticResetRef.current);
-    optimisticResetRef.current = null;
-  }, [activeRouteKey, onTransitionReady, optimisticRouteKey]);
+    if (transitionRequest.current !== null) {
+      completeNavigationTransition(transitionRequest.current);
+      transitionRequest.current = null;
+    }
+  }, [activeRouteKey, optimisticRouteKey]);
 
-  useEffect(() => () => {
-    if (optimisticResetRef.current) clearTimeout(optimisticResetRef.current);
-  }, []);
-
-  function showImmediateSelection(routeKey: string, label: string) {
+  function showImmediateSelection(routeKey: string) {
     if (routeKey === activeRouteKey) {
-      const pendingRouteKey = latestPressRouteKeyRef.current;
-      if (optimisticResetRef.current) clearTimeout(optimisticResetRef.current);
-      optimisticResetRef.current = null;
-      latestPressRouteKeyRef.current = null;
       setOptimisticRouteKey(null);
-      if (pendingRouteKey) onTransitionCancel?.(pendingRouteKey);
       return;
     }
-    if (optimisticResetRef.current) clearTimeout(optimisticResetRef.current);
-    latestPressRouteKeyRef.current = routeKey;
     setOptimisticRouteKey(routeKey);
-    onTransitionStart?.(routeKey, label);
-    optimisticResetRef.current = setTimeout(() => {
-      setOptimisticRouteKey(null);
-      onTransitionCancel?.(routeKey);
-      if (latestPressRouteKeyRef.current === routeKey) latestPressRouteKeyRef.current = null;
-    }, 4000);
   }
 
   const tabItems = tabs.map((route) => {
@@ -88,24 +68,39 @@ export function FloatingTabBar({ state, descriptors, navigation, onTransitionSta
     const compactLabel = shortLabel(String(label), route.name, language);
 
     function onPress() {
-      if (latestPressRouteKeyRef.current && latestPressRouteKeyRef.current !== route.key) return;
       beginPerformanceMarker("NAV_TAP", { route: route.name });
       markPerformanceEvent("NAV_TOUCH_RECEIVED", { route: route.name });
       const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
       if (event.defaultPrevented) {
         setOptimisticRouteKey(null);
-        latestPressRouteKeyRef.current = null;
-        onTransitionCancel?.(route.key);
+        if (transitionRequest.current !== null) completeNavigationTransition(transitionRequest.current);
+        transitionRequest.current = null;
         return;
       }
-      if (focused) return;
+      if (focused) {
+        if (transitionRequest.current !== null) completeNavigationTransition(transitionRequest.current);
+        transitionRequest.current = null;
+        return;
+      }
       markPerformanceEvent("NAV_ACTION_DISPATCH", { route: route.name });
-      navigation.navigate(route.name, route.params);
+      try {
+        navigation.navigate(route.name, route.params);
+      } catch (error) {
+        setOptimisticRouteKey(null);
+        if (transitionRequest.current !== null) completeNavigationTransition(transitionRequest.current);
+        transitionRequest.current = null;
+        throw error;
+      }
       markPerformanceEvent("NAV_ACTION_DISPATCHED", { route: route.name });
     }
 
     return (
-      <Pressable accessibilityRole="tab" accessibilityLabel={compactLabel} accessibilityState={{ selected }} key={route.key} onPressIn={() => { beginNavigationPerformanceLock(); showImmediateSelection(route.key, compactLabel); }} onPress={onPress} style={styles.tab}>
+      <Pressable accessibilityRole="tab" accessibilityLabel={compactLabel} accessibilityState={{ selected }} key={route.key} onPressIn={() => {
+        if (focused) return;
+        beginNavigationPerformanceLock();
+        showImmediateSelection(route.key);
+        transitionRequest.current = beginNavigationTransition(navigationLocationKey(pathname, params), compactLabel);
+      }} onPress={onPress} style={styles.tab}>
         {selected ? <LinearGradient colors={[v2Colors.primary, v2Colors.violet]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.activePill} /> : null}
         <View style={styles.tabInner}>
           <View style={styles.iconWrap}>
@@ -174,9 +169,9 @@ function createStyles(theme: AppTheme, colors: ReturnType<typeof getThemeColors>
       paddingVertical: 6,
       shadowColor: "#000000",
       shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: Platform.OS === "android" ? 0.16 : 0.35,
-      shadowRadius: Platform.OS === "android" ? 5 : 16,
-      elevation: Platform.OS === "android" ? 5 : 12
+      shadowOpacity: Platform.OS === "android" ? 0 : 0.18,
+      shadowRadius: Platform.OS === "android" ? 0 : 6,
+      elevation: Platform.OS === "android" ? 1 : 4
     },
     tab: {
       flex: 1,

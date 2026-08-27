@@ -4,6 +4,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { ImagePreviewModal } from "@/components/image-preview-modal";
 import { toExpoContentPosition, type ImageFocus } from "@/firebase/shared/image-focus";
+import { imageSource } from "@/utils/image-source";
 
 type ZoomableHeroImageProps = {
   uri: string;
@@ -18,7 +19,7 @@ export function ZoomableHeroImage({ uri, imageFocus, containerStyle, children }:
   return (
     <>
       <Pressable onPress={() => setPreviewImage(uri)} style={[styles.container, containerStyle]} accessibilityRole="button" accessibilityLabel="Görseli büyüt">
-        <Image source={{ uri }} style={StyleSheet.absoluteFillObject} contentFit="cover" contentPosition={toExpoContentPosition(imageFocus)} />
+        <Image source={imageSource(uri, "detail")} style={StyleSheet.absoluteFillObject} contentFit="cover" contentPosition={toExpoContentPosition(imageFocus)} cachePolicy="memory-disk" allowDownscaling />
         {children}
         <View style={styles.expandBadge} pointerEvents="none">
           <Ionicons name="expand-outline" size={15} color="#fff8eb" />

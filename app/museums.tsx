@@ -32,7 +32,7 @@ export default function MuseumsScreen() {
       <View style={styles.list}>
         {filtered.map((museum) => (
           <Pressable key={museum.id} onPress={() => router.push({ pathname: "/museum/[id]", params: { id: museum.id } })} style={styles.card}>
-            <CoverImage source={{ uri: museum.image }} style={styles.image} imageFocus={museum.imageFocus} />
+            <CoverImage source={{ uri: museum.image }} style={styles.image} imageFocus={museum.imageFocus} imageVariant="card" />
             <View style={styles.info}>
               <Text style={styles.title}>{museum.name[language]}</Text>
               <Text style={styles.meta}>{museum.city[language]} · {museum.country[language]}</Text>

@@ -21,7 +21,7 @@ export default function ArtistsScreen() {
   const performanceMode = useRuntimePerformanceMode();
   const renderArtist = useCallback(({ item: artist }: { item: (typeof artists)[number] }) => (
     <Pressable onPress={() => router.push({ pathname: "/artist/[id]", params: { id: artist.id } })} style={styles.card}>
-      <CoverImage source={{ uri: artist.image }} recyclingKey={artist.id} style={styles.image} imageFocus={artist.imageFocus} />
+      <CoverImage source={{ uri: artist.image }} recyclingKey={`${artist.id}:thumbnail`} style={styles.image} imageFocus={artist.imageFocus} imageVariant="thumbnail" />
       <View style={styles.info}>
         <Text style={styles.name}>{artist.name[language]}</Text>
         <Text style={styles.meta}>{artist.life} · {artist.country[language]}</Text>

@@ -1,6 +1,5 @@
 import { StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { homeCopy } from "@/app/i18n/common";
 import { radii, v2Colors } from "@/constants/design";
@@ -11,9 +10,10 @@ import { QuickDiscovery, type HomeActionItem } from "@/features/home/components/
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
 import { t } from "@/utils/localized-text";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 
 export default function AtlasClubScreen() {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { language } = useLanguage();
   const { theme } = useAppTheme();
   const colors = getThemeColors(theme);

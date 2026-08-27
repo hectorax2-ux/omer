@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
+import { Animated, Easing, StyleSheet, View } from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { AppTheme, isBrightTheme } from "@/constants/theme";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -22,7 +22,7 @@ export function AmbientBackdrop({ theme, active = true }: { theme: AppTheme; act
   const tone = tones[theme] ?? tones.dark;
   const reducedMotion = useReducedMotion();
   const performanceMode = useRuntimePerformanceMode();
-  const lightweight = Platform.OS === "android" && performanceMode !== "full";
+  const lightweight = performanceMode !== "full";
   const animate = active && !reducedMotion && !lightweight;
   const drift = useRef(new Animated.Value(0)).current;
   const sweep = useRef(new Animated.Value(0)).current;

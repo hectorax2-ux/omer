@@ -22,8 +22,8 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
 import { useLegal } from "@/hooks/use-legal";
 import { Language } from "@/types/content";
-import { compressProfileImage } from "@/utils/image-compression";
 import { uploadFormatHint, validatePickedImageAsset } from "@/utils/image-upload-validation";
+import { imageSource } from "@/utils/image-source";
 
 const THEME_ONBOARDING_VERSION = "1";
 
@@ -191,7 +191,7 @@ export function ProfileCompletionGate() {
       setError(validation.message);
       return;
     }
-    setAvatar(await compressProfileImage(result.assets[0].uri));
+    setAvatar(result.assets[0].uri);
     setAvatarRemoved(false);
     setSelectedArtistId(undefined);
     setError("");
@@ -269,7 +269,7 @@ export function ProfileCompletionGate() {
                 <View style={[styles.avatarHalo, { borderColor: colors.line, backgroundColor: colors.panelSoft }]}>
                   <View style={[styles.avatar, { borderColor: colors.gold, backgroundColor: colors.panelSoft }]}>
                     {avatar ? (
-                      <Image source={{ uri: avatar }} style={styles.avatarImage} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" transition={140} />
+                      <Image source={imageSource(avatar, "thumbnail")} style={styles.avatarImage} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" allowDownscaling transition={140} />
                     ) : <Ionicons name="person" size={48} color={colors.gold} />}
                   </View>
                 </View>
@@ -332,7 +332,7 @@ export function ProfileCompletionGate() {
         <View style={styles.artistGrid}>
           {artists.filter((artist) => artist.image).map((artist) => (
             <Pressable key={artist.id} onPress={() => chooseArtist(artist.id)} style={[styles.artistOption, { borderColor: selectedArtistId === artist.id ? colors.gold : colors.line, backgroundColor: colors.panelSoft }]}>
-              <Image source={{ uri: artist.image }} style={styles.artistImage} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" transition={120} recyclingKey={artist.id} />
+              <Image source={imageSource(artist.image, "thumbnail")} style={styles.artistImage} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" allowDownscaling transition={120} recyclingKey={`${artist.id}:thumbnail`} />
               <Text style={[styles.artistName, { color: colors.ivory }]} numberOfLines={2}>{artist.name[language]}</Text>
               {selectedArtistId === artist.id ? <View style={[styles.artistCheck, { backgroundColor: colors.gold }]}><Ionicons name="checkmark" size={13} color={colors.ink} /></View> : null}
             </Pressable>

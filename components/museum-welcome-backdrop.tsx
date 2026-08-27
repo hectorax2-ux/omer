@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Animated, Easing, StyleSheet, View } from "react-native";
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from "react-native-svg";
 import { AppTheme } from "@/constants/theme";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 
 type SceneTone = { wall0: string; wall1: string; floor: string; nicheGlow: string; warm: string };
 
@@ -55,8 +56,14 @@ export function MuseumWelcomeBackdrop({ theme }: { theme: AppTheme }) {
   const tone = scenes[theme] ?? scenes.dark;
   const parallax = useRef(new Animated.Value(0)).current;
   const beam = useRef(new Animated.Value(0)).current;
+  const animate = useRuntimePerformanceMode() === "full";
 
   useEffect(() => {
+    parallax.stopAnimation();
+    beam.stopAnimation();
+    parallax.setValue(0);
+    beam.setValue(0);
+    if (!animate) return undefined;
     const loops = [
       Animated.loop(Animated.sequence([
         Animated.timing(parallax, { toValue: 1, duration: 32000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
@@ -69,7 +76,7 @@ export function MuseumWelcomeBackdrop({ theme }: { theme: AppTheme }) {
     ];
     loops.forEach((loop) => loop.start());
     return () => loops.forEach((loop) => loop.stop());
-  }, [beam, parallax]);
+  }, [animate, beam, parallax]);
 
   const sceneStyle = {
     transform: [
@@ -91,11 +98,8 @@ export function MuseumWelcomeBackdrop({ theme }: { theme: AppTheme }) {
       <Animated.View style={[StyleSheet.absoluteFill, sceneStyle]}>
         <MuseumScene tone={tone} />
       </Animated.View>
-      <Animated.View style={[styles.beam, beamStyle]} />
-      <Dust delay={0} startX="18%" />
-      <Dust delay={5000} startX="42%" />
-      <Dust delay={9000} startX="63%" />
-      <Dust delay={3000} startX="80%" />
+      {animate ? <Animated.View style={[styles.beam, beamStyle]} /> : null}
+      {animate ? <><Dust delay={0} startX="18%" /><Dust delay={5000} startX="42%" /><Dust delay={9000} startX="63%" /><Dust delay={3000} startX="80%" /></> : null}
     </View>
   );
 }

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -24,6 +23,9 @@ import {
   type ProfileVisitVisibility
 } from "@/src/services/firebase/profile-visit-service";
 import { t } from "@/utils/localized-text";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
+import { useIsFocused } from "@react-navigation/native";
 
 type LoadState = "loading" | "data" | "empty" | "error";
 
@@ -34,8 +36,10 @@ export default function ProfileVisitsScreen() {
   const colors = getThemeColors(theme);
   const { width } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors, width < 360), [colors, width]);
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const reducedMotion = useReducedMotion();
+  const performanceMode = useRuntimePerformanceMode();
+  const isFocused = useIsFocused();
   const orbitProgress = useRef(new Animated.Value(0)).current;
   const requestRef = useRef(0);
   const snapshotRef = useRef<ProfileVisitSnapshot | null>(null);
@@ -46,9 +50,10 @@ export default function ProfileVisitsScreen() {
   const [privacyError, setPrivacyError] = useState("");
 
   useEffect(() => {
-    if (reducedMotion) {
+    orbitProgress.stopAnimation();
+    if (reducedMotion || performanceMode !== "full" || !isFocused) {
       orbitProgress.setValue(0.12);
-      return;
+      return undefined;
     }
     const animation = Animated.loop(Animated.timing(orbitProgress, {
       toValue: 1,
@@ -58,7 +63,7 @@ export default function ProfileVisitsScreen() {
     }));
     animation.start();
     return () => animation.stop();
-  }, [orbitProgress, reducedMotion]);
+  }, [isFocused, orbitProgress, performanceMode, reducedMotion]);
 
   useEffect(() => {
     if (!account.uid) return;

@@ -25,6 +25,7 @@ import { useAds } from "@/hooks/use-ads";
 import { Language } from "@/types/content";
 import { commonCopy } from "@/app/i18n/common";
 import { t } from "@/utils/localized-text";
+import { imageSource } from "@/utils/image-source";
 
 type FeedLanguage = Language | "all";
 const PAGE_SIZE = 12;
@@ -268,7 +269,7 @@ export default function CommunityArtScreen() {
         </View>
         <View style={styles.trophyOrbit}>
           <View style={styles.trophyRing} />
-          {approved[0]?.image ? <Image source={{ uri: approved[0].image }} style={styles.heroArtwork} contentFit="cover" /> : <View style={styles.heroArtworkFallback}><Ionicons name="trophy" size={42} color={v2Colors.premium} /></View>}
+          {approved[0]?.image ? <Image source={imageSource(approved[0].image, "large")} style={styles.heroArtwork} contentFit="cover" cachePolicy="memory-disk" allowDownscaling /> : <View style={styles.heroArtworkFallback}><Ionicons name="trophy" size={42} color={v2Colors.premium} /></View>}
           <View style={styles.trophyBadge}><Ionicons name="trophy" size={18} color="#3A2603" /></View>
         </View>
       </View>
@@ -311,7 +312,7 @@ export default function CommunityArtScreen() {
           <Text style={styles.sectionTitle}>{copy.approvalQueue[language]}</Text>
           {pending.map((item) => (
             <View key={item.id} style={styles.pendingRow}>
-              <Image source={{ uri: item.image }} style={styles.pendingImage} contentFit="cover" />
+              <Image source={imageSource(item.image, "thumbnail")} style={styles.pendingImage} contentFit="cover" cachePolicy="memory-disk" allowDownscaling />
               <View style={styles.pendingInfo}>
                 <Pressable onPress={() => requireAuth(() => router.push({ pathname: "/profile/[name]", params: { name: profileRouteParam({ username: item.uploaderUsername, displayName: item.artistName, uid: item.ownerId }) } }))}>
                   <View style={styles.nameRow}>
@@ -354,7 +355,7 @@ export default function CommunityArtScreen() {
             ]}
           >
             <Pressable onPress={() => setSelectedArtworkId(item.id)}>
-              <Image source={{ uri: item.image }} style={[styles.artImage, { height: artImageHeight }]} contentFit="cover" />
+              <Image source={imageSource(item.image, "card")} style={[styles.artImage, { height: artImageHeight }]} contentFit="cover" cachePolicy="memory-disk" allowDownscaling />
               <View style={styles.zoomHint}>
                 <Ionicons name="expand-outline" size={12} color={colors.ivory} />
               </View>

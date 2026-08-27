@@ -3,7 +3,6 @@ import { Animated, Easing, Modal, Pressable, StyleSheet, Text, useWindowDimensio
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
 import { RewardedScoreGate } from "@/components/rewarded-score-gate";
@@ -13,6 +12,8 @@ import { useArtSystems } from "@/hooks/use-art-systems";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { duelCopy } from "@/app/i18n/duels";
 import {
   canChangeProphecyPrediction,
@@ -45,7 +46,7 @@ function AuthenticatedDuelsScreen() {
   const { width } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
   const styles = useMemo(() => createStyles(colors, width), [colors, width]);
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { account } = useAccount();
   const { duels, prophecyPredictions, prophecyPredictionTimes, prophecyWeeks, makeProphecyPrediction, userDuelVoteChanges, userDuelVotes, voteDuel } = useArtSystems();
   const [message, setMessage] = useState("");
@@ -330,16 +331,18 @@ function ConfirmModal({ visible, title, text, cancelText, confirmText, busy = fa
 
 function OracleArenaHero({ images, title, subtitle, reducedMotion, styles, colors }: { images: string[]; title: string; subtitle: string; reducedMotion: boolean; styles: ReturnType<typeof createStyles>; colors: ReturnType<typeof getThemeColors> }) {
   const motion = useRef(new Animated.Value(0)).current;
+  const performanceMode = useRuntimePerformanceMode();
 
   useEffect(() => {
-    if (reducedMotion) {
+    motion.stopAnimation();
+    if (reducedMotion || performanceMode !== "full") {
       motion.setValue(0.15);
-      return;
+      return undefined;
     }
     const animation = Animated.loop(Animated.timing(motion, { toValue: 1, duration: 7800, easing: Easing.linear, useNativeDriver: true }));
     animation.start();
     return () => animation.stop();
-  }, [motion, reducedMotion]);
+  }, [motion, performanceMode, reducedMotion]);
 
   return (
     <LinearGradient colors={["rgba(36,38,98,0.92)", "rgba(45,20,80,0.95)", "rgba(93,25,80,0.88)"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
@@ -404,7 +407,7 @@ function ProphecyPanel({
   copy: ReturnType<typeof duelCopy>;
   language: "tr" | "en" | "ru" | "uz";
 }) {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const weekStatus = (week as ProphecyWeek & { status?: string }).status;
   const isFinished = weekStatus === "finished" || !!week.winnerId;
   const withinWindow = week.id ? isWithinFirstHours(week.startsAt, 48) : false;

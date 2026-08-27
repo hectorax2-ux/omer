@@ -33,6 +33,7 @@ import { AppUpdateGate } from "@/components/app-update-gate";
 import { AppBootstrapProvider } from "@/providers/bootstrap-provider";
 import { endPerformanceMarker, markPerformanceEvent } from "@/utils/performance";
 import { useStartupPhase } from "@/hooks/use-startup-phase";
+import { NavigationTransitionHost } from "@/components/navigation-transition-host";
 
 markPerformanceEvent("APP_START");
 
@@ -209,6 +210,7 @@ export default function RootLayout() {
                               <NavigationPerformanceObserver />
                               <StatusBar style="light" />
                               <Stack screenOptions={{ headerShown: false }} />
+                              <NavigationTransitionHost />
                               <ProfileCompletionGate />
                               </AppBootstrapProvider>
                             </ReadingPreferencesProvider>

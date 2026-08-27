@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
@@ -13,6 +12,7 @@ import { useLanguage } from "@/hooks/use-language";
 import { useMuseum } from "@/hooks/use-museums";
 import { commonCopy } from "@/app/i18n/common";
 import { t } from "@/utils/localized-text";
+import { CoverImage } from "@/components/cover-image";
 
 export default function MuseumDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -54,7 +54,7 @@ export default function MuseumDetailScreen() {
       <View style={styles.list}>
         {museumArtworks.map((artwork) => (
           <Pressable key={artwork.id} onPress={() => router.push({ pathname: "/artwork/[id]", params: { id: artwork.id } })} style={styles.row}>
-            <Image source={{ uri: artwork.image }} style={styles.thumb} contentFit="cover" />
+            <CoverImage source={{ uri: artwork.image }} style={styles.thumb} imageVariant="thumbnail" />
             <View style={styles.rowInfo}>
               <Text style={styles.title}>{artwork.title[language]}</Text>
               <Text style={styles.meta}>{artwork.artist[language]}</Text>

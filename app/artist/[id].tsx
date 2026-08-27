@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
@@ -13,6 +12,7 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
 import { commonCopy } from "@/app/i18n/common";
 import { t } from "@/utils/localized-text";
+import { CoverImage } from "@/components/cover-image";
 
 export default function ArtistDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -62,7 +62,7 @@ export default function ArtistDetailScreen() {
       <View style={styles.artworks}>
         {featured.map((artwork) => (
           <Pressable key={artwork.id} onPress={() => router.push({ pathname: "/artwork/[id]", params: { id: artwork.id } })} style={styles.artworkCard}>
-            <Image source={{ uri: artwork.image }} style={styles.artworkImage} contentFit="cover" />
+            <CoverImage source={{ uri: artwork.image }} style={styles.artworkImage} imageVariant="thumbnail" />
             <View style={styles.artworkInfo}>
               <Text style={styles.artworkTitle}>{artwork.title[language]}</Text>
               <Text style={styles.artworkMeta}>{artwork.year}</Text>

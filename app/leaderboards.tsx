@@ -3,7 +3,7 @@ import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, Text, useWi
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
 import { ImagePreviewModal } from "@/components/image-preview-modal";
@@ -13,6 +13,7 @@ import { useArtSystems } from "@/hooks/use-art-systems";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useCommunityArt } from "@/hooks/use-community-art";
 import { useLanguage } from "@/hooks/use-language";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useAccount } from "@/hooks/use-account";
 import { useCountryCodeLookup } from "@/hooks/use-country-code-lookup";
@@ -117,7 +118,7 @@ export default function LeaderboardsScreen() {
 function AuthenticatedLeaderboardsScreen() {
   const { language } = useLanguage();
   const { theme } = useAppTheme();
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const params = useLocalSearchParams<{ board?: string }>();
   const colors = getThemeColors(theme);
   const { width } = useWindowDimensions();

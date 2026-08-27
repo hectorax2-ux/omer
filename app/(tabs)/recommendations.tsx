@@ -15,6 +15,7 @@ import { useLanguage } from "@/hooks/use-language";
 import { useAccount } from "@/hooks/use-account";
 import { useRegisterRefresh } from "@/providers/refresh-provider";
 import { firestoreDb } from "@/src/services/firebase";
+import { imageSource } from "@/utils/image-source";
 
 const PAGE_SIZE = 20;
 type LocalizedText = Record<"tr" | "en" | "ru" | "uz", string>;
@@ -51,7 +52,7 @@ export default function RecommendationsScreen() {
     <AppChrome title={copy.recommendations[language]} eyebrow="CURATED" showTopAd={false}>
       {featuredFilm ? (
         <View style={styles.filmHero}>
-          {featuredFilm.image ? <Image source={{ uri: featuredFilm.image }} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
+          {featuredFilm.image ? <Image source={imageSource(featuredFilm.image, "large")} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" allowDownscaling /> : null}
           <LinearGradient colors={["rgba(5,8,18,0.1)", "rgba(7,10,18,0.65)", "#070A12"]} style={StyleSheet.absoluteFill} />
           <View style={styles.filmGlow} pointerEvents="none" />
           <Text style={styles.heroEyebrow}>{filmLabel(language)}</Text>
@@ -67,7 +68,7 @@ export default function RecommendationsScreen() {
           <View style={styles.bookShelf}>
             {featuredBooks.map((book, index) => (
               <View key={book.id} style={[styles.bookObject, index === 1 && styles.bookRaised]}>
-                {book.image ? <Image source={{ uri: book.image }} style={styles.bookCover} contentFit="cover" /> : <LinearGradient colors={["#1E1B4B", "#4C1D95", "#11182A"]} style={styles.bookCover}><Ionicons name="book" size={28} color={v2Colors.premium} /></LinearGradient>}
+                {book.image ? <Image source={imageSource(book.image, "thumbnail")} style={styles.bookCover} contentFit="cover" cachePolicy="memory-disk" allowDownscaling /> : <LinearGradient colors={["#1E1B4B", "#4C1D95", "#11182A"]} style={styles.bookCover}><Ionicons name="book" size={28} color={v2Colors.premium} /></LinearGradient>}
                 <LinearGradient colors={["transparent", "rgba(5,8,18,0.92)"]} style={styles.bookScrim} />
                 <Text style={styles.bookTitle} numberOfLines={3}>{book.title[language]}</Text>
                 {book.creator ? <Text style={styles.bookAuthor} numberOfLines={1}>{book.creator}</Text> : null}
@@ -83,7 +84,7 @@ export default function RecommendationsScreen() {
           {remaining.map((item) => (
             <View key={item.id} style={styles.mediaItem}>
               <View style={[styles.poster, item.type === "book" && styles.coverRatio]}>
-                {item.image ? <Image source={{ uri: item.image }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <LinearGradient colors={item.type === "film" ? ["#0C4A6E", "#312E81", "#11182A"] : ["#4C1D95", "#7E22CE", "#11182A"]} style={[StyleSheet.absoluteFill, styles.fallback]}><Ionicons name={item.type === "film" ? "film" : "book"} size={30} color={v2Colors.text} /></LinearGradient>}
+                {item.image ? <Image source={imageSource(item.image, "card")} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" allowDownscaling /> : <LinearGradient colors={item.type === "film" ? ["#0C4A6E", "#312E81", "#11182A"] : ["#4C1D95", "#7E22CE", "#11182A"]} style={[StyleSheet.absoluteFill, styles.fallback]}><Ionicons name={item.type === "film" ? "film" : "book"} size={30} color={v2Colors.text} /></LinearGradient>}
                 <LinearGradient colors={["transparent", "rgba(5,8,18,0.96)"]} style={styles.posterScrim} />
                 <View style={styles.typeOrb}><Ionicons name={item.type === "film" ? "play" : "bookmark"} size={12} color={v2Colors.text} /></View>
               </View>

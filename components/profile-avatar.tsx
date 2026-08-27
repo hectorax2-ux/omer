@@ -4,6 +4,8 @@ import { Image } from "expo-image";
 import Svg, { Circle, Path } from "react-native-svg";
 import { getThemeColors } from "@/constants/theme";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { isInteractionPerformanceLocked } from "@/hooks/use-runtime-performance-mode";
+import { avatarVariantForSize, imageSource } from "@/utils/image-source";
 
 export function hasProfilePhoto(uri?: string) {
   return Boolean(uri?.trim());
@@ -60,11 +62,14 @@ export function ProfileAvatar({
 
   return (
     <Image
-      source={{ uri: uri!.trim() }}
+      source={imageSource(uri!.trim(), avatarVariantForSize(size))}
       style={[frameStyle, style as StyleProp<ImageStyle>]}
       contentFit="cover"
       cachePolicy="memory-disk"
-      transition={180}
+      recyclingKey={`${avatarVariantForSize(size)}:${uri!.trim()}`}
+      priority="normal"
+      allowDownscaling
+      transition={isInteractionPerformanceLocked() ? 0 : 120}
       onError={() => setFailed(true)}
     />
   );

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -21,6 +20,7 @@ import { rankProfileDiscoveryUsers } from "@/features/profile/profile-discovery-
 import { resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
 import { profileRouteParam } from "@/utils/profile-route";
 import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { useIsFocused } from "@react-navigation/native";
 
 type ProfileFilter = "all" | "recommended" | "premium" | UserRoleId;
@@ -61,7 +61,7 @@ function AuthenticatedDiscoverScreen() {
   const social = useSocial();
   const loadMoreUsers = social.loadMoreUsers;
   const { account } = useAccount();
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const reducedMotion = useReducedMotion();
   const [filter, setFilter] = useState<ProfileFilter>("all");
   const [pickerOpen, setPickerOpen] = useState(false);

@@ -31,6 +31,7 @@ import { createReport } from "@/src/services/firebase/report-service";
 import { belongsToProfileArtwork, belongsToProfileMuseum, belongsToProfilePost, isAuthoredByPost, isProfileVisibleArtwork, normalizeIdentityKey } from "@/utils/user-identity";
 import { profileRouteParam } from "@/utils/profile-route";
 import { isPremiumDataActive } from "@/utils/premium-status";
+import { imageSource } from "@/utils/image-source";
 import { resolveCountryCode, resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
 import { findUserByIdentity, getUserDocumentFromServer, setUserSuspensionStatus, subscribeUserProfile } from "@/src/services/firebase/user-service";
 import { UserProfileDocument } from "@/src/types/firestore";
@@ -38,6 +39,7 @@ import { msg, systemMessages } from "@/app/i18n/system-messages";
 import { loadProfileCache, peekProfileCache, saveProfileCache } from "@/features/profile/profile-cache";
 import { reconcileProfileHydration, type ProfileHydrationState } from "@/features/profile/profile-hydration";
 import { recordProfileVisit } from "@/src/services/firebase/profile-visit-service";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 
 const labels = {
   profile: { tr: "Profil", en: "Profile", ru: "Профиль", uz: "Profil" },
@@ -695,7 +697,7 @@ export default function MemberProfileScreen() {
         <View style={[styles.grid, { gap: tileGap }]}>
           {artworks.map((item) => (
             <Pressable key={item.id} onPress={() => { setPreviewArtworkNotice(""); setSelectedArtworkId(item.id); }} style={[styles.profileArtworkCard, { width: tileSize }]} accessibilityRole="button" accessibilityLabel={item.title}>
-              <Image source={{ uri: item.image }} style={[styles.tileImage, { width: tileSize, height: tileSize }]} contentFit="cover" />
+              <Image source={imageSource(item.image, "thumbnail")} style={[styles.tileImage, { width: tileSize, height: tileSize }]} contentFit="cover" cachePolicy="memory-disk" allowDownscaling />
               <View style={styles.profileArtworkTitleRow}>
                 <Text style={styles.profileArtworkTitle} numberOfLines={1}>{item.title}</Text>
                 <ArtworkGridCommentBadge count={(commentsByArtwork[item.id] ?? []).length} colors={colors} />
@@ -791,15 +793,19 @@ export default function MemberProfileScreen() {
 
 function ProfileSkeleton({ styles }: { styles: ReturnType<typeof createStyles> }) {
   const pulse = useRef(new Animated.Value(0)).current;
+  const animate = useRuntimePerformanceMode() === "full";
 
   useEffect(() => {
+    pulse.stopAnimation();
+    pulse.setValue(0.35);
+    if (!animate) return undefined;
     const animation = Animated.loop(Animated.sequence([
       Animated.timing(pulse, { toValue: 1, duration: 760, useNativeDriver: true }),
       Animated.timing(pulse, { toValue: 0, duration: 760, useNativeDriver: true })
     ]));
     animation.start();
     return () => animation.stop();
-  }, [pulse]);
+  }, [animate, pulse]);
 
   return (
     <Animated.View style={{ opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.52, 0.82] }) }} accessibilityLabel="Profile loading">

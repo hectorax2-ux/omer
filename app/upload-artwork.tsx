@@ -68,6 +68,7 @@ export default function UploadArtworkScreen() {
   const router = useRouter();
   const { items, deleteSubmittedArtwork, getArtworkLimitStatus, getWeeklyArtworkQuota, submitArtwork } = useCommunityArt();
   const [image, setImage] = useState<string | null>(null);
+  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
   const [artworkLanguage, setArtworkLanguage] = useState<Language>(language);
   const [title, setTitle] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -88,7 +89,7 @@ export default function UploadArtworkScreen() {
   });
 
   useEffect(() => {
-    const timer = setInterval(() => setClockTick((value) => value + 1), 1000);
+    const timer = setInterval(() => setClockTick((value) => value + 1), 30_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -119,6 +120,7 @@ export default function UploadArtworkScreen() {
         return;
       }
       setImage(asset.uri);
+      setImageDimensions({ width: asset.width, height: asset.height });
       setError("");
     }
   }
@@ -145,15 +147,18 @@ export default function UploadArtworkScreen() {
       throw new Error(language === "tr" ? "Görsel yüklemek için tekrar giriş yapın." : "Please sign in again to upload the image.");
     }
 
+    const resize = imageDimensions.width && imageDimensions.height && imageDimensions.height > imageDimensions.width
+      ? { height: 1080 }
+      : { width: 1080 };
     const optimized = await ImageManipulator.manipulateAsync(
       localUri,
-      [{ resize: { width: 1600 } }],
-      { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+      [{ resize }],
+      { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
     );
     const response = await fetch(optimized.uri);
     const blob = await response.blob();
-    if (blob.size > 4 * 1024 * 1024) {
-      throw new Error(language === "tr" ? "Görsel 4 MB üstünde kaldı. Daha küçük bir görsel seçin." : "The image is still larger than 4 MB. Choose a smaller image.");
+    if (blob.size > 2 * 1024 * 1024) {
+      throw new Error(language === "tr" ? "Görsel optimize edildikten sonra 2 MB üstünde kaldı. Daha küçük bir görsel seçin." : "The optimized image is still larger than 2 MB. Choose a smaller image.");
     }
     const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
     return uploadImage(communityImagePath(account.uid, fileName), blob, {

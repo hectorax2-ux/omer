@@ -105,7 +105,7 @@ function CuratorArtworkCard({ item, reason, curator, onOpen, styles }: { item: H
       accessibilityHint={reason}
     >
       <Animated.View style={[styles.imageMotion, { transform: [{ scale: press.interpolate({ inputRange: [0, 1], outputRange: [1, 1.025] }) }, { translateY: press.interpolate({ inputRange: [0, 1], outputRange: [0, 2] }) }] }]}>
-        <HomeImage uri={item.image} style={styles.image} contentFit="cover" transition={220} />
+        <HomeImage uri={item.image} style={styles.image} contentFit="cover" imageVariant="thumbnail" transition={220} />
       </Animated.View>
       <LinearGradient colors={["rgba(6,7,18,0.02)", "rgba(6,7,18,0.94)"]} style={styles.scrim} pointerEvents="none" />
       <View style={[styles.reasonPill, curator && styles.curatorTag]}>

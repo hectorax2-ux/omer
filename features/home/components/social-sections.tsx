@@ -67,7 +67,7 @@ export function FollowingActivity({ theme, artworks, posts }: { theme: AppTheme;
               style={styles.artCard}
               accessibilityLabel={`${artwork.title}, ${artwork.artistName}`}
             >
-              <HomeImage uri={artwork.image} style={styles.artImage} contentFit="cover" transition={180} />
+              <HomeImage uri={artwork.image} style={styles.artImage} contentFit="cover" imageVariant="thumbnail" transition={180} />
               <LinearGradient colors={["rgba(5,6,16,0)", "rgba(5,6,16,0.9)"]} style={StyleSheet.absoluteFill} pointerEvents="none" />
               <View style={styles.artBody}>
                 <Text style={styles.artTitle} numberOfLines={2}>{artwork.title}</Text>

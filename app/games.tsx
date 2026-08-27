@@ -4,7 +4,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { EqualHeightHeaderSlot } from "@/components/ui/equal-height-header-slot";
-import { useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
 import { RewardedScoreGate } from "@/components/rewarded-score-gate";
@@ -32,12 +31,13 @@ import { getActiveWeeklyQuizPack, getUserQuizAttempt, resolveQuizWeekIdFromPack,
 import type { TimelineGameType } from "@/firebase/shared/timeline-game";
 import { prefetchImageUrls } from "@/utils/image-prefetch";
 import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { useIsFocused } from "@react-navigation/native";
 
 type Lang = "tr" | "en" | "ru" | "uz";
 type GameKey = "jigsaw";
 
-const ART_DETECTIVE_COVER = require("../assets/images/art-detective-cover.png");
+const ART_DETECTIVE_COVER = require("../assets/images/art-detective-cover-mobile.jpg");
 
 const labels = {
   games: { tr: "Oyunlar", en: "Games", ru: "Игры", uz: "O'yinlar" },
@@ -124,7 +124,7 @@ export default function GamesScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const width = useWindowDimensions().width;
   const reducedMotion = useReducedMotion();
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const [selectedGame, setSelectedGame] = useState<GameKey | null>(null);
   const [exitPromptVisible, setExitPromptVisible] = useState(false);
   const [infoGameOpen, setInfoGameOpen] = useState<GameKey | null>(null);
@@ -215,7 +215,7 @@ export default function GamesScreen() {
   }, [canBrowsePublicContent, isAuthenticated, refreshCounter]);
 
   useEffect(() => {
-    const timer = setInterval(() => setTimelineNow(performance.now()), 1000);
+    const timer = setInterval(() => setTimelineNow(performance.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
 

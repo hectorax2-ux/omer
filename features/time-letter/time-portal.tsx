@@ -6,6 +6,7 @@ import { CoverImage } from "@/components/cover-image";
 import { hexAlpha } from "@/constants/design";
 import { getThemeColors } from "@/constants/theme";
 import { Artist, Language } from "@/types/content";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 
 type ThemeColors = ReturnType<typeof getThemeColors>;
 
@@ -57,6 +58,8 @@ export function TimePortal({
   const breath = useRef(new Animated.Value(0)).current;
   const lock = useRef(new Animated.Value(selectedArtist ? 1 : 0)).current;
   const particle = useRef(new Animated.Value(0)).current;
+  const performanceMode = useRuntimePerformanceMode();
+  const lightweight = reducedMotion || performanceMode !== "full";
   const compact = width < 360;
   const medal = compact ? 44 : 52;
   const core = compact ? 82 : 92;
@@ -65,7 +68,7 @@ export function TimePortal({
   useEffect(() => {
     breath.stopAnimation();
     particle.stopAnimation();
-    if (reducedMotion) {
+    if (lightweight) {
       breath.setValue(0);
       particle.setValue(0);
       return undefined;
@@ -81,7 +84,7 @@ export function TimePortal({
       pulse.stop();
       drift.stop();
     };
-  }, [breath, particle, reducedMotion]);
+  }, [breath, lightweight, particle]);
 
   useEffect(() => {
     Animated.timing(lock, {
@@ -159,7 +162,7 @@ export function TimePortal({
           lock={lock}
           lockedMedal={lockedMedal}
           medal={medal}
-          reducedMotion={reducedMotion}
+          reducedMotion={lightweight}
           selected={selectedArtist?.id === artist.id}
           selectedAny={Boolean(selectedArtist)}
           width={width}

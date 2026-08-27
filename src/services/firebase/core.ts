@@ -404,13 +404,13 @@ export async function uploadMuseumCover(uid: string, localUri: string): Promise<
 
   const optimized = await ImageManipulator.manipulateAsync(
     localUri,
-    [{ resize: { width: 1280 } }],
-    { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+    [{ resize: { width: 960 } }],
+    { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
   );
   const response = await fetch(optimized.uri);
   const blob = await response.blob();
-  if (blob.size > 3 * 1024 * 1024) {
-    throw new Error("Kapak görseli 3 MB sınırını aşıyor. Daha küçük bir görsel seçin.");
+  if (blob.size > 1024 * 1024) {
+    throw new Error("Kapak görseli optimize edildikten sonra 1 MB sınırını aşıyor. Daha küçük bir görsel seçin.");
   }
 
   const fileName = `${Date.now()}-cover.jpg`;
@@ -429,13 +429,13 @@ export async function uploadProfilePhoto(uid: string, localUri: string): Promise
 
   const optimized = await ImageManipulator.manipulateAsync(
     localUri,
-    [{ resize: { width: 960 } }],
-    { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
+    [{ resize: { width: 512 } }],
+    { compress: 0.78, format: ImageManipulator.SaveFormat.JPEG }
   );
   const response = await fetch(optimized.uri);
   const blob = await response.blob();
-  if (blob.size > 2 * 1024 * 1024) {
-    throw new Error("Profil fotoğrafı 2 MB sınırını aşıyor. Daha küçük bir görsel seçin.");
+  if (blob.size > 300 * 1024) {
+    throw new Error("Profil fotoğrafı optimize edildikten sonra 300 KB sınırını aşıyor. Daha küçük bir görsel seçin.");
   }
 
   const fileName = `${Date.now()}-avatar.jpg`;

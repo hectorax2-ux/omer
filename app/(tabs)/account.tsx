@@ -44,8 +44,9 @@ import { useSocial } from "@/hooks/use-social";
 import { useCountryLookup } from "@/providers/country-lookup-provider";
 import { isAuthoredByPost, isOwnedArtwork, isOwnedMuseum, isProfileVisibleArtwork } from "@/utils/user-identity";
 import { Language } from "@/types/content";
-import { compressProfileImage } from "@/utils/image-compression";
+import { compressArtworkImage } from "@/utils/image-compression";
 import { uploadFormatHint, validatePickedImageAsset } from "@/utils/image-upload-validation";
+import { imageSource } from "@/utils/image-source";
 import { buildLimitStatusText, buildRateLimitMessage, throttleAction, withinBurstLimit } from "@/utils/safety";
 import { useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
@@ -181,7 +182,7 @@ function AccountContent() {
 
   useEffect(() => {
     if (!postModalOpen && !profileUploadOpen) return;
-    const timer = setInterval(() => setClockTick((value) => value + 1), 1000);
+    const timer = setInterval(() => setClockTick((value) => value + 1), 30_000);
     return () => clearInterval(timer);
   }, [postModalOpen, profileUploadOpen]);
 
@@ -336,8 +337,7 @@ function AccountContent() {
         setAccountError(validation.message);
         return;
       }
-      const compressedUri = await compressProfileImage(asset.uri);
-      setAvatar(compressedUri);
+      setAvatar(asset.uri);
       setAccountError("");
       setSaved(false);
     }
@@ -361,7 +361,7 @@ function AccountContent() {
         setProfileImageError(validation.message);
         return;
       }
-      const compressedUri = await compressProfileImage(asset.uri);
+      const compressedUri = await compressArtworkImage(asset.uri, asset.width, asset.height);
       setProfileImage(compressedUri);
       setProfileImageError("");
     }
@@ -733,7 +733,7 @@ function AccountContent() {
           <View style={[styles.profileGrid, { gap: profileGridGap }]}>
             {ownArtworks.map((item) => (
               <Pressable key={item.id} onPress={() => openProfileArtworkPreview(item.id)} style={[styles.profileArtworkCard, { width: profileArtworkSize }]} accessibilityRole="button" accessibilityLabel={item.title}>
-                <Image source={{ uri: item.image }} style={[styles.profileArtworkImage, { width: profileArtworkSize, height: profileArtworkSize }]} contentFit="cover" />
+                <Image source={imageSource(item.image, "thumbnail")} style={[styles.profileArtworkImage, { width: profileArtworkSize, height: profileArtworkSize }]} contentFit="cover" cachePolicy="memory-disk" allowDownscaling />
                 <View style={styles.profileArtworkTitleRow}>
                   <Text style={styles.profileArtworkTitle} numberOfLines={1}>{item.title}</Text>
                   <ArtworkGridCommentBadge count={(commentsByArtwork[item.id] ?? []).length} colors={colors} />
@@ -809,7 +809,7 @@ function AccountContent() {
               <View style={styles.avatarButtonWrap}>
                 <Pressable onPress={pickAvatar} style={styles.avatarButton}>
                   {avatar ? (
-                    <Image source={{ uri: avatar }} style={styles.avatarImage} contentFit="cover" />
+                    <Image source={imageSource(avatar, "thumbnail")} style={styles.avatarImage} contentFit="cover" cachePolicy="memory-disk" allowDownscaling />
                   ) : (
                     <Ionicons name="person" size={28} color={colors.gold} />
                   )}
@@ -1539,7 +1539,7 @@ function ProfileUploadModal({
           </View>
           <Pressable onPress={pickProfileImage} style={styles.profileImagePicker}>
             {profileImage ? (
-              <Image source={{ uri: profileImage }} style={styles.profileImagePreview} contentFit="cover" />
+              <Image source={imageSource(profileImage, "detail")} style={styles.profileImagePreview} contentFit="cover" cachePolicy="memory-disk" allowDownscaling />
             ) : (
               <>
                 <Ionicons name="add-circle-outline" size={26} color={colors.gold} />

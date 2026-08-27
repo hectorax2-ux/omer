@@ -4,7 +4,7 @@ import { InteractionManager } from "react-native";
 export type RuntimePerformanceMode = "balanced" | "full" | "reduced";
 
 const listeners = new Set<() => void>();
-let measuredMode: RuntimePerformanceMode = "balanced";
+let measuredMode: RuntimePerformanceMode = "reduced";
 let navigationLocked = false;
 let scrollLocked = false;
 let measurementScheduled = false;
@@ -61,7 +61,7 @@ export function scheduleRuntimePerformanceMeasurement() {
         if (goodWindows >= 2) updateMeasuredMode("balanced");
         return;
       }
-      updateMeasuredMode(goodWindows >= 3 ? "full" : "balanced");
+      updateMeasuredMode("balanced");
     };
     requestAnimationFrame(sample);
   });
@@ -113,5 +113,5 @@ function subscribe(listener: () => void) {
 }
 
 export function useRuntimePerformanceMode() {
-  return useSyncExternalStore(subscribe, snapshot, () => "balanced" as RuntimePerformanceMode);
+  return useSyncExternalStore(subscribe, snapshot, () => "reduced" as RuntimePerformanceMode);
 }

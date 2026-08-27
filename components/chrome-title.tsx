@@ -3,6 +3,7 @@ import { Animated, StyleProp, StyleSheet, Text, TextStyle, View } from "react-na
 import { LinearGradient } from "expo-linear-gradient";
 import { AppTheme, getThemeColors } from "@/constants/theme";
 import { hexAlpha } from "@/constants/design";
+import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 
 type Props = {
   title: string;
@@ -95,8 +96,12 @@ function BrandWordmark({
   const shimmer = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const [glyphWidth, setGlyphWidth] = useState(0);
+  const animate = useRuntimePerformanceMode() === "full";
 
   useEffect(() => {
+    shimmer.stopAnimation();
+    shimmer.setValue(0);
+    if (!animate) return undefined;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.delay(1500),
@@ -105,9 +110,12 @@ function BrandWordmark({
     );
     loop.start();
     return () => loop.stop();
-  }, [shimmer]);
+  }, [animate, shimmer]);
 
   useEffect(() => {
+    pulse.stopAnimation();
+    pulse.setValue(0);
+    if (!animate) return undefined;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 1500, useNativeDriver: true }),
@@ -116,7 +124,7 @@ function BrandWordmark({
     );
     loop.start();
     return () => loop.stop();
-  }, [pulse]);
+  }, [animate, pulse]);
 
   const diamondStyle = {
     transform: [

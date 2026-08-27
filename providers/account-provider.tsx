@@ -50,6 +50,7 @@ import { markPerformanceEvent } from "@/utils/performance";
 import { loadResourceCache, saveResourceCache } from "@/src/services/cache/resource-cache";
 import { socialDisplayName, socialUsername } from "@/utils/social-auth-profile";
 import { useStartupPhase } from "@/hooks/use-startup-phase";
+import { hasVerifiedSocialProvider, isEmailVerifiedForApp } from "@/utils/email-verification";
 
 export type MemberRole = UserRoleId;
 
@@ -264,8 +265,8 @@ export function AccountProvider({ children }: PropsWithChildren) {
           return;
         }
         const authenticatedUser = user;
-        const sociallyVerified = hasSocialAuthProvider(authenticatedUser);
-        const verified = authenticatedUser.emailVerified || sociallyVerified;
+        const sociallyVerified = hasVerifiedSocialProvider(authenticatedUser);
+        const verified = isEmailVerifiedForApp(authenticatedUser);
 
         // Auth restoration is local and navigation-critical. Profile hydration is not:
         // render a usable account shell first, then reconcile Firestore in background.
@@ -300,7 +301,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
     const user = firebaseAuth.currentUser;
     if (!isAuthenticated || !user) return undefined;
 
-    const sociallyVerified = hasSocialAuthProvider(user);
+    const sociallyVerified = hasVerifiedSocialProvider(user);
 
     return onSnapshot(doc(firestoreDb, "users", user.uid), async (snapshot) => {
       const loadedProfile = snapshot.exists()
@@ -313,7 +314,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
       const shouldSyncVerifiedEmail = Boolean(
         loadedProfile
         && authEmail
-        && (firebaseAuth.currentUser?.emailVerified || sociallyVerified)
+        && isEmailVerifiedForApp(firebaseAuth.currentUser)
         && loadedProfile.email.trim().toLowerCase() !== authEmail.toLowerCase()
       );
       const profile = loadedProfile && shouldSyncVerifiedEmail
@@ -402,13 +403,13 @@ export function AccountProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     const refreshVerification = async () => {
       const user = firebaseAuth.currentUser;
-      if (!user || hasSocialAuthProvider(user) || verificationRefreshInFlight.current) return;
+      if (!user || verificationRefreshInFlight.current) return;
       if (isEmailVerified && !pendingVerificationEmail) return;
       verificationRefreshInFlight.current = true;
       try {
         await reload(user);
         const pendingEmail = pendingVerificationEmail?.trim().toLowerCase();
-        if (!user.emailVerified || (pendingEmail && user.email?.trim().toLowerCase() !== pendingEmail)) return;
+        if (!isEmailVerifiedForApp(user) || (pendingEmail && user.email?.trim().toLowerCase() !== pendingEmail)) return;
         await getIdToken(user, true);
         setIsEmailVerified(true);
         setPendingVerificationEmail(undefined);
@@ -436,6 +437,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") void refreshVerification();
     });
+    void refreshVerification();
     return () => subscription.remove();
   }, [isEmailVerified, pendingVerificationEmail]);
 
@@ -480,25 +482,19 @@ export function AccountProvider({ children }: PropsWithChildren) {
       login: async (email: string, password: string) => {
         try {
           const credential = await loginWithEmail(email, password);
+          const verified = isEmailVerifiedForApp(credential.user);
+          setAccount(accountFromFirebaseUser(credential.user.uid, credential.user.email ?? email, credential.user.displayName ?? ""));
+          setProfileHydrated(false);
+          setProfileHydrationError(false);
+          setNeedsProfileCompletion(false);
+          setPendingVerificationEmail(verified ? undefined : credential.user.email ?? email);
+          setIsAuthenticated(true);
+          setIsEmailVerified(verified);
 
-          if (!credential.user.emailVerified) {
-            const profile = await getUserProfile(credential.user.uid);
-            setAccount(profile ? accountFromProfile(profile) : accountFromFirebaseUser(credential.user.uid, credential.user.email ?? email, credential.user.displayName ?? ""));
-            setProfileHydrated(Boolean(profile));
-            setNeedsProfileCompletion(profile ? profileNeedsCompletion(profile) : true);
-            setPendingVerificationEmail(credential.user.email ?? email);
-            setIsAuthenticated(true);
-            setIsEmailVerified(false);
-            return { ok: false, message: "Lütfen e-posta adresinizi doğrulayın.", requiresVerification: true };
+          if (!verified) {
+            return { ok: true, message: "Giriş yapıldı. Lütfen e-posta adresinizi doğrulayın.", requiresVerification: true };
           }
 
-          const profile = await getUserProfile(credential.user.uid);
-          setAccount(profile ? accountFromProfile(profile) : accountFromFirebaseUser(credential.user.uid, credential.user.email ?? email, credential.user.displayName ?? ""));
-          setProfileHydrated(Boolean(profile));
-          setNeedsProfileCompletion(profile ? profileNeedsCompletion(profile) : true);
-          setPendingVerificationEmail(undefined);
-          setIsAuthenticated(true);
-          setIsEmailVerified(true);
           return { ok: true, message: "" };
         } catch (error) {
           return { ok: false, message: getFriendlyAuthError(error) };
@@ -543,7 +539,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
         try {
           const user = firebaseAuth.currentUser;
 
-          if (user && (user.emailVerified || hasSocialAuthProvider(user))) {
+          if (user && isEmailVerifiedForApp(user)) {
             setPendingVerificationEmail(undefined);
             setIsEmailVerified(true);
             return { ok: true, message: "E-posta adresiniz zaten doğrulanmış." };
@@ -562,7 +558,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
 
           await reload(user);
 
-          if (!user.emailVerified) {
+          if (!isEmailVerifiedForApp(user)) {
             return { ok: false, message: "Lütfen e-posta adresinizi doğrulayın.", requiresVerification: true };
           }
 
@@ -579,7 +575,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
           const user = firebaseAuth.currentUser;
           if (user) {
             await reload(user).catch(() => undefined);
-            if (user.emailVerified || hasSocialAuthProvider(user)) {
+            if (isEmailVerifiedForApp(user)) {
               setPendingVerificationEmail(undefined);
               setIsEmailVerified(true);
               return { ok: true, message: "E-posta adresiniz zaten doğrulanmış." };
@@ -603,7 +599,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
             return { ok: false, message: "Doğrulama e-postası göndermek için önce giriş yapmanız gerekir." };
           }
           await reload(user);
-          if (user.emailVerified || hasSocialAuthProvider(user)) {
+          if (isEmailVerifiedForApp(user)) {
             const pendingEmail = pendingVerificationEmail?.trim().toLowerCase();
             if (pendingEmail && user.email?.trim().toLowerCase() !== pendingEmail) {
               await requestEmailChange(pendingEmail, undefined, user);
@@ -636,7 +632,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
           await reload(user);
           const emailChanged = normalizedEmail !== user.email?.trim().toLowerCase();
           await requestEmailChange(normalizedEmail, currentPassword, user);
-          if (!emailChanged && user.emailVerified) {
+          if (!emailChanged && isEmailVerifiedForApp(user)) {
             await getIdToken(user, true);
             setIsEmailVerified(true);
             setPendingVerificationEmail(undefined);
@@ -899,8 +895,7 @@ function mergeMemberScore(account: Account, summary: Awaited<ReturnType<typeof l
 }
 
 function hasSocialAuthProvider(user: User | null = firebaseAuth.currentUser) {
-  if (!user) return false;
-  return user.providerData.some((provider) => provider.providerId === "google.com" || provider.providerId === "apple.com");
+  return hasVerifiedSocialProvider(user);
 }
 
 function accountFromProfile(profile: FirebaseUserProfile): Account {

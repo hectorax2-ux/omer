@@ -14,7 +14,7 @@ export function ArtworkCard({ artwork, large = false, onPress }: { artwork: Artw
   const titleSize = large ? Math.min(26, Math.max(22, width * 0.058)) : Math.min(21, Math.max(18, width * 0.05));
   const content = (
     <>
-      <CoverImage source={{ uri: artwork.image }} style={styles.image} imageFocus={artwork.imageFocus} transition={300} />
+      <CoverImage source={{ uri: artwork.image }} style={styles.image} imageFocus={artwork.imageFocus} imageVariant="card" transition={300} />
       <LinearGradient colors={["transparent", "rgba(16, 16, 15, 0.88)"]} style={styles.gradient} />
       <View style={styles.meta}>
         <Text style={styles.period}>{artwork.period[language]} · {artwork.year}</Text>

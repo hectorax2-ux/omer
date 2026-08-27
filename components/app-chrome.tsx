@@ -3,7 +3,7 @@ import { Animated, Easing, FlatList, GestureResponderEvent, Image, Keyboard, Key
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { usePathname, useRouter, useSegments } from "expo-router";
+import { useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { UserRoleId } from "@/constants/profile-taxonomy";
 import { AppTheme, colors, getThemeColors, isBrightTheme } from "@/constants/theme";
 import { hairline, navigationLayout, v2Colors } from "@/constants/design";
@@ -37,6 +37,7 @@ import { getAppShortcutVisibility } from "@/utils/atlas-club-navigation";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useIsFocused } from "@react-navigation/native";
 import { beginNavigationPerformanceLock, beginScrollPerformanceLock, endScrollPerformanceLock } from "@/hooks/use-runtime-performance-mode";
+import { beginNavigationTransition, completeNavigationTransition, navigationLocationKey } from "@/utils/navigation-transition-store";
 
 type ChromeChild = ReactNode | ((refreshVersion: number) => ReactNode);
 
@@ -94,6 +95,8 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const themeStyles = useMemo(() => makeChromeThemeStyles(themeColors, theme), [themeColors, theme]);
   const router = useRouter();
   const pathname = usePathname();
+  const navigationParams = useGlobalSearchParams<Record<string, string | string[]>>();
+  const navigationLocation = navigationLocationKey(pathname, navigationParams);
   const segments = useSegments();
   const routeShortcutVisibility = getAppShortcutVisibility(pathname, { keyboardFocused: keyboardAvoiding || keyboardVisible });
   const shortcutVisibility = showFloatingShortcuts ? routeShortcutVisibility : { showAtlasClub: false, showPremium: false };
@@ -138,12 +141,21 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const veryCompactLanguageStyle = veryCompactHeader ? styles.languageButtonVeryCompact : undefined;
   const resolvedShowTopAd = showTopAd ?? isCategoryTopBannerRoute(pathname);
   const navigate = (action: () => void) => {
-    beginNavigationPerformanceLock();
+    const commit = () => {
+      beginNavigationPerformanceLock();
+      const requestId = beginNavigationTransition(navigationLocation);
+      try {
+        action();
+      } catch (error) {
+        completeNavigationTransition(requestId);
+        throw error;
+      }
+    };
     if (onNavigationRequest) {
-      onNavigationRequest(action);
+      onNavigationRequest(commit);
       return;
     }
-    action();
+    commit();
   };
 
   function openAtlasClub() {
@@ -896,9 +908,9 @@ function makeChromeThemeStyles(c: ReturnType<typeof getThemeColors>, theme: AppT
       borderColor: isLight ? "rgba(155,116,45,0.2)" : "rgba(255,255,255,0.12)",
       shadowColor: "#000000",
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isLight ? 0.08 : 0.3,
-      shadowRadius: 8,
-      elevation: 2
+      shadowOpacity: Platform.OS === "android" ? 0 : isLight ? 0.06 : 0.16,
+      shadowRadius: Platform.OS === "android" ? 0 : 5,
+      elevation: Platform.OS === "android" ? 0 : 2
     },
     topAdWrap: {
       backgroundColor: isLight ? "rgba(241,245,249,0.72)" : "rgba(11,16,32,0.64)",

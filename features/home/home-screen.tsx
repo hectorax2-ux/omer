@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InteractionManager, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { Reveal } from "@/components/ui/reveal";
@@ -31,9 +30,10 @@ import { prepareTimelineGameQueue } from "@/src/services/firebase/timeline-game-
 import { prefetchImageUrls } from "@/utils/image-prefetch";
 import { markPerformanceEvent } from "@/utils/performance";
 import { useStartupPhase } from "@/hooks/use-startup-phase";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 
 export default function HomeExperienceScreen() {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { language } = useLanguage();
   const { theme } = useAppTheme();
   const colors = getThemeColors(theme);

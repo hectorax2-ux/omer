@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getThemeColors } from "@/constants/theme";
-import { navigationLayout } from "@/constants/design";
 import { copy, uiCopy } from "@/data/content";
-import { NavigationTransition } from "@/components/navigation-transition";
 import { FloatingTabBar } from "@/components/floating-tab-bar";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
@@ -23,54 +19,10 @@ export default function TabsLayout() {
   const { language } = useLanguage();
   const { theme } = useAppTheme();
   const colors = getThemeColors(theme);
-  const insets = useSafeAreaInsets();
-  const transitionTokenRef = useRef(0);
-  const readyFrameRef = useRef<number | null>(null);
-  const [pendingTransition, setPendingTransition] = useState<{ token: number; routeKey: string; label: string } | null>(null);
-
-  const startTransition = useCallback((routeKey: string, label: string) => {
-    transitionTokenRef.current += 1;
-    if (readyFrameRef.current !== null) cancelAnimationFrame(readyFrameRef.current);
-    readyFrameRef.current = null;
-    setPendingTransition({ token: transitionTokenRef.current, routeKey, label });
-  }, []);
-
-  const finishTransition = useCallback((routeKey: string) => {
-    const token = transitionTokenRef.current;
-    if (readyFrameRef.current !== null) cancelAnimationFrame(readyFrameRef.current);
-    readyFrameRef.current = requestAnimationFrame(() => {
-      readyFrameRef.current = null;
-      setPendingTransition((current) => current?.token === token && current.routeKey === routeKey ? null : current);
-    });
-  }, []);
-
-  const cancelTransition = useCallback((routeKey: string) => {
-    setPendingTransition((current) => current?.routeKey === routeKey ? null : current);
-  }, []);
-
-  useEffect(() => {
-    if (!pendingTransition) return undefined;
-    const timeout = setTimeout(() => {
-      setPendingTransition((current) => current?.token === pendingTransition.token ? null : current);
-    }, 4000);
-    return () => clearTimeout(timeout);
-  }, [pendingTransition]);
-
-  useEffect(() => () => {
-    if (readyFrameRef.current !== null) cancelAnimationFrame(readyFrameRef.current);
-  }, []);
-
   return (
     <View style={styles.root}>
       <Tabs
-        tabBar={(props) => (
-          <FloatingTabBar
-            {...props}
-            onTransitionStart={startTransition}
-            onTransitionReady={finishTransition}
-            onTransitionCancel={cancelTransition}
-          />
-        )}
+        tabBar={(props) => <FloatingTabBar {...props} />}
         screenOptions={{
         headerShown: false,
         lazy: true,
@@ -174,11 +126,6 @@ export default function TabsLayout() {
         }}
       />
       </Tabs>
-      <NavigationTransition
-        visible={Boolean(pendingTransition)}
-        label={pendingTransition?.label}
-        bottomInset={navigationLayout.floatingBarHeight + Math.max(insets.bottom, navigationLayout.minimumBottomInset)}
-      />
     </View>
   );
 }
