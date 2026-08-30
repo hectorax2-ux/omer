@@ -50,10 +50,12 @@ import {
 import * as ImageManipulator from "expo-image-manipulator";
 import { isPremiumPlan, isPremiumSubscriptionStatus, PremiumPlan, PremiumSubscriptionStatus } from "@/constants/premiumProducts";
 import { parseUserRestrictions, UserRestrictionRecord } from "@/utils/user-restrictions";
-import { resolveCountryCode } from "@/utils/country-utils";
+import { getCountryProfileFields } from "@/utils/country-utils";
 import { museumCoverPath, profileAvatarPath, uploadImage } from "./storage-service";
 import { purgeUserAccountRemote } from "./account-deletion-service";
 import { APP_WEB_ORIGIN } from "@/constants/app-links";
+import { authErrorCode } from "@/utils/auth-lifecycle";
+import { traceAuthStep } from "@/utils/auth-diagnostics";
 
 export const firebaseConfig: FirebaseOptions = {
   apiKey: "AIzaSyAJt-zyn1UORtiHLIYKdS32936JqZReQQo",
@@ -114,6 +116,8 @@ export type FirebaseUserProfile = {
   email: string;
   displayName: string;
   photoURL: string;
+  avatarType?: "uploaded" | "artist" | "default";
+  avatarArtistId?: string;
   role: FirebaseUserRole;
   appRole?: FirebaseUserRole;
   country: string;
@@ -151,8 +155,11 @@ export type CreateUserProfileInput = {
   email: string;
   displayName?: string;
   photoURL?: string;
+  avatarType?: "uploaded" | "artist" | "default";
+  avatarArtistId?: string;
   role?: FirebaseUserRole;
   country?: string;
+  countryCode?: string;
   city?: string;
   bio?: string;
   interests?: string[];
@@ -187,7 +194,7 @@ export const firebaseAuthReady = firebaseAuthRuntime.ready.then(
     return true;
   },
   (error) => {
-    console.error("[Auth] Durable Firebase session storage could not be initialized.", error);
+    console.error("[Auth] Durable Firebase session storage could not be initialized.", authErrorCode(error));
     return false;
   }
 );
@@ -224,9 +231,20 @@ function createFirebaseAuth(app: FirebaseApp) {
   }
 }
 
+let persistenceRecovery: Promise<void> | undefined;
 async function requireDurableAuthPersistence() {
   if (await firebaseAuthReady) return;
-  throw new Error("Secure session storage is unavailable. Please restart the app and try again.");
+  // Retry a transient storage failure on an explicit sign-in, without downgrading
+  // to an in-memory session that would disappear on restart.
+  persistenceRecovery ??= setPersistence(firebaseAuth, Platform.OS === "web"
+    ? browserLocalPersistence : getReactNativePersistence(AsyncStorage))
+    .then(() => firebaseAuth.authStateReady())
+    .catch((error: unknown) => {
+      persistenceRecovery = undefined;
+      console.warn("[Auth] Session persistence retry failed.", authErrorCode(error));
+      throw new FirebaseError("auth/persistence-unavailable", "Durable session storage unavailable.");
+    });
+  await persistenceRecovery;
 }
 
 export function getFirebaseServices() {
@@ -243,44 +261,44 @@ export function isFirebaseConnectionReady() {
 }
 
 export async function registerWithEmail(email: string, password: string): Promise<UserCredential> {
-  await requireDurableAuthPersistence();
-  return createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
+  await traceAuthStep("session-storage", "email-signup", requireDurableAuthPersistence);
+  return traceAuthStep("firebase-auth", "email-signup", () => createUserWithEmailAndPassword(firebaseAuth, email.trim(), password));
 }
 
 export async function loginWithEmail(email: string, password: string): Promise<UserCredential> {
-  await requireDurableAuthPersistence();
-  return signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+  await traceAuthStep("session-storage", "email", requireDurableAuthPersistence);
+  return traceAuthStep("firebase-auth", "email", () => signInWithEmailAndPassword(firebaseAuth, email.trim(), password));
 }
 
 export async function loginWithAppleIdentityToken(identityToken: string, rawNonce?: string): Promise<UserCredential> {
-  await requireDurableAuthPersistence();
+  await traceAuthStep("session-storage", "apple", requireDurableAuthPersistence);
   const provider = new OAuthProvider("apple.com");
   const credential = provider.credential({
     idToken: identityToken,
     ...(rawNonce ? { rawNonce } : {})
   });
-  return signInWithCredential(firebaseAuth, credential);
+  return traceAuthStep("firebase-auth", "apple", () => signInWithCredential(firebaseAuth, credential));
 }
 
 export async function loginWithApplePopup(): Promise<UserCredential> {
-  await requireDurableAuthPersistence();
+  await traceAuthStep("session-storage", "apple-web", requireDurableAuthPersistence);
   const provider = new OAuthProvider("apple.com");
   provider.addScope("email");
   provider.addScope("name");
-  return signInWithPopup(firebaseAuth, provider);
+  return traceAuthStep("firebase-auth", "apple-web", () => signInWithPopup(firebaseAuth, provider));
 }
 
 export async function loginWithGooglePopup(): Promise<UserCredential> {
-  await requireDurableAuthPersistence();
+  await traceAuthStep("session-storage", "google-web", requireDurableAuthPersistence);
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
-  return signInWithPopup(firebaseAuth, provider);
+  return traceAuthStep("firebase-auth", "google-web", () => signInWithPopup(firebaseAuth, provider));
 }
 
 export async function loginWithGoogleIdToken(idToken: string): Promise<UserCredential> {
-  await requireDurableAuthPersistence();
+  await traceAuthStep("session-storage", "google", requireDurableAuthPersistence);
   const credential = GoogleAuthProvider.credential(idToken);
-  return signInWithCredential(firebaseAuth, credential);
+  return traceAuthStep("firebase-auth", "google", () => signInWithCredential(firebaseAuth, credential));
 }
 
 export async function logout(): Promise<void> {
@@ -379,13 +397,19 @@ export async function updateUserProfile(uid: string, profile: UpdateUserProfileI
     throw new Error(`İsim en az ${DISPLAY_NAME_MIN_LENGTH} karakter olmalı.`);
   }
 
-  const { email: _privateEmail, socialLinks, ...publicProfile } = profile;
+  const { email: _privateEmail, socialLinks, avatarArtistId, ...publicProfile } = profile;
   await updateDoc(doc(firestoreDb, "users", uid), {
     ...publicProfile,
+    ...(profile.country !== undefined || profile.countryCode !== undefined ? getCountryProfileFields(profile) : {}),
     email: deleteField(),
     ...(socialLinks
       ? { socialLinks }
       : { "socialLinks.email": deleteField() }),
+    ...(typeof avatarArtistId === "string"
+      ? avatarArtistId.trim()
+        ? { avatarArtistId: avatarArtistId.trim() }
+        : { avatarArtistId: deleteField() }
+      : {}),
     ...(typeof profile.username === "string" ? { username: normalizeUsername(profile.username) } : {}),
     ...(typeof profile.displayName === "string" ? { displayName: normalizeDisplayName(profile.displayName) } : {}),
     updatedAt: serverTimestamp()
@@ -513,10 +537,11 @@ function buildUserProfile(profile: CreateUserProfileInput): FirebaseUserProfile 
     email: "",
     displayName,
     photoURL: profile.photoURL ?? "",
+    ...(profile.avatarType ? { avatarType: profile.avatarType } : {}),
+    ...(profile.avatarArtistId ? { avatarArtistId: profile.avatarArtistId } : {}),
     role: profile.role === "admin" ? "admin" : "user",
     appRole,
-    country: profile.country ?? "",
-    countryCode: resolveCountryCode(profile.country ?? "") ?? "",
+    ...getCountryProfileFields(profile),
     city: profile.city ?? "",
     bio: profile.bio ?? "",
     interests: profile.interests ?? [],
@@ -548,12 +573,15 @@ export function normalizeUserProfile(data: DocumentData, uid: string): FirebaseU
     email: "",
     displayName: typeof data.displayName === "string" ? data.displayName : "",
     photoURL: typeof data.photoURL === "string" ? data.photoURL : "",
+    avatarType: data.avatarType === "uploaded" || data.avatarType === "artist" || data.avatarType === "default" ? data.avatarType : undefined,
+    avatarArtistId: typeof data.avatarArtistId === "string" && data.avatarArtistId.trim() ? data.avatarArtistId : undefined,
     role: typeof data.role === "string" ? data.role as FirebaseUserRole : "user",
     appRole: typeof data.appRole === "string" ? data.appRole as FirebaseUserRole : undefined,
-    country: typeof data.country === "string" ? data.country : "",
-    countryCode: typeof data.countryCode === "string" && data.countryCode.trim()
-      ? data.countryCode.trim().toUpperCase()
-      : "",
+    ...getCountryProfileFields({
+      country: typeof data.country === "string" ? data.country : "",
+      countryCode: typeof data.countryCode === "string" ? data.countryCode : "",
+      countryId: typeof data.countryId === "string" ? data.countryId : ""
+    }),
     city: typeof data.city === "string" ? data.city : "",
     bio: typeof data.bio === "string" ? data.bio : "",
     interests: Array.isArray(data.interests) ? data.interests.filter((item: unknown) => typeof item === "string") : [],

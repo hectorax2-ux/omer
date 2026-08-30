@@ -2,12 +2,14 @@ import { collection, doc, getDocFromServer, getDocsFromServer, limit, onSnapshot
 import { firestoreDb } from "./core";
 import { UserProfileDocument } from "@/src/types/firestore";
 import { getDocument, listDocuments, firestoreQuery, withId } from "@/src/services/firebase/firestore-helpers";
+import { getCountryProfileFields } from "@/utils/country-utils";
 
-export type EditableUserProfile = Pick<UserProfileDocument, "username" | "displayName" | "photoURL" | "country" | "city" | "bio" | "interests" | "socialLinks" | "showInCountryExplore">;
+export type EditableUserProfile = Pick<UserProfileDocument, "username" | "displayName" | "photoURL" | "country" | "countryCode" | "city" | "bio" | "interests" | "socialLinks" | "showInCountryExplore">;
 
 export async function createUserDocument(input: Omit<UserProfileDocument, "id" | "createdAt" | "updatedAt" | "role" | "systemBadges" | "adminBadges" | "followersCount" | "followingCount" | "isDisabled">): Promise<void> {
   await setDoc(doc(firestoreDb, "users", input.uid), {
     ...input,
+    ...getCountryProfileFields(input),
     role: "user",
     systemBadges: [],
     adminBadges: [],
@@ -31,6 +33,7 @@ export async function getUserDocumentFromServer(uid: string): Promise<UserProfil
 export async function updateOwnUserProfile(uid: string, input: Partial<EditableUserProfile>): Promise<void> {
   await updateDoc(doc(firestoreDb, "users", uid), {
     ...input,
+    ...(input.country !== undefined || input.countryCode !== undefined ? getCountryProfileFields(input) : {}),
     updatedAt: serverTimestamp()
   });
 }

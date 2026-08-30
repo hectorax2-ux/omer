@@ -2,15 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
+import { ScreenDataState } from "@/components/screen-data-state";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { getRoleIcon, getRoleItem, roleItems, type UserRoleId } from "@/constants/profile-taxonomy";
 import { getThemeColors } from "@/constants/theme";
 import { radii, v2Colors } from "@/constants/design";
 import { safeTextLayout } from "@/constants/text-layout";
-import { countryCommunities, uiCopy } from "@/data/content";
+import { uiCopy } from "@/data/content";
 import { useAccount } from "@/hooks/use-account";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
@@ -18,7 +18,7 @@ import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useSocial } from "@/hooks/use-social";
 import type { SuggestedUser } from "@/providers/social-provider";
 import { rankProfileDiscoveryUsers } from "@/features/profile/profile-discovery-ranking";
-import { resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
+import { getLocalizedCountryName, normalizeCountryInput, resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
 import { profileRouteParam } from "@/utils/profile-route";
 import { useRuntimePerformanceMode } from "@/hooks/use-runtime-performance-mode";
 import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
@@ -66,18 +66,18 @@ function AuthenticatedDiscoverScreen() {
   const reducedMotion = useReducedMotion();
   const [filter, setFilter] = useState<ProfileFilter>("all");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(12);
+  const [visibleCount, setVisibleCount] = useState(20);
   const [queryText, setQueryText] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(queryText.trim().toLocaleLowerCase("tr")), 300);
+    const timer = setTimeout(() => setDebouncedQuery(normalizeCountryInput(queryText)), 300);
     return () => clearTimeout(timer);
   }, [queryText]);
 
-  useEffect(() => setVisibleCount(12), [debouncedQuery, filter]);
+  useEffect(() => setVisibleCount(20), [debouncedQuery, filter]);
 
-  const userCountryId = resolveCountryId(account.country);
+  const userCountryId = resolveCountryId(account.countryCode ?? account.country);
   const ranked = useMemo(() => rankProfileDiscoveryUsers(social.visibleSuggestedUsers, {
     followingUids: social.followingUids,
     countryId: userCountryId,
@@ -86,8 +86,8 @@ function AuthenticatedDiscoverScreen() {
   const featured = ranked.slice(0, 3);
   const filtered = useMemo(() => ranked
     .filter((user) => matchesFilter(user, filter))
-    .filter((user) => !debouncedQuery || `${user.name} ${user.username} ${user.country ?? ""}`.toLocaleLowerCase("tr").includes(debouncedQuery)), [debouncedQuery, filter, ranked]);
-  const visible = filtered.slice(0, visibleCount);
+    .filter((user) => !debouncedQuery || normalizeCountryInput(`${user.name} ${user.username} ${user.country ?? ""} ${getLocalizedCountryName(resolveCountryCodeFromUser(user) ?? user.countryId, language)}`).includes(debouncedQuery)), [debouncedQuery, filter, language, ranked]);
+  const visible = filtered.slice(0, Math.min(visibleCount, 100));
   const supportedRoles = useMemo(() => roleItems.filter((role) => ranked.some((user) => user.role === role.id)), [ranked]);
   const options = useMemo(() => [
     { key: "all" as const, icon: "sparkles" as const, label: labels.all },
@@ -106,16 +106,24 @@ function AuthenticatedDiscoverScreen() {
   }, [debouncedQuery, filter, filtered.length, loadMoreUsers, social.hasMoreUsers, social.profileDiscoveryStatus]);
 
   async function showMore() {
-    if (visibleCount + 8 > filtered.length && social.hasMoreUsers) await loadMoreUsers();
-    setVisibleCount((value) => value + 8);
+    if (visibleCount + 20 > filtered.length && social.hasMoreUsers) await loadMoreUsers();
+    setVisibleCount((value) => Math.min(100, value + 20));
+  }
+
+  async function toggleFollow(user: SuggestedUser) {
+    if (social.isFollowing(user)) await social.unfollowUser(user);
+    else await social.followUser(user);
   }
 
   function openProfile(user: SuggestedUser) {
     router.push({ pathname: "/profile/[name]", params: { name: profileRouteParam(user) } });
   }
 
-  return (
-    <AppChrome title={uiCopy.discover[language]} showBackButton backToHome>
+  const rows = Array.from({ length: Math.ceil(visible.length / 2) }, (_, index) => visible.slice(index * 2, index * 2 + 2));
+  const virtualizedItems = [
+    {
+      key: "profile-discovery-header",
+      content: <>
       <View style={styles.searchBox}>
         <Ionicons name="search" size={18} color={v2Colors.cyan} />
         <TextInput
@@ -134,7 +142,7 @@ function AuthenticatedDiscoverScreen() {
           <SectionTitle title={labels.featured[language]} styles={styles} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredRail} decelerationRate="fast">
             {featured.map((user, index) => (
-              <PortraitCard key={user.uid || user.username} user={user} width={Math.min(230, contentWidth * 0.64)} index={index} featured language={language} reducedMotion={reducedMotion} onPress={() => openProfile(user)} styles={styles} />
+              <PortraitCard key={user.uid || user.username} user={user} width={Math.min(212, contentWidth * 0.6)} index={index} featured language={language} reducedMotion={reducedMotion} following={social.isFollowing(user)} onFollow={() => void toggleFollow(user)} onPress={() => openProfile(user)} styles={styles} />
             ))}
           </ScrollView>
         </View>
@@ -167,26 +175,29 @@ function AuthenticatedDiscoverScreen() {
         {social.profileDiscoveryRefreshing ? <Text style={styles.refreshingText}>{labels.refreshing[language]}</Text> : null}
       </View>
 
-      {showInitialLoading ? <PortraitSkeletonGrid cardWidth={cardWidth} gap={horizontalGap} styles={styles} /> : null}
-      {showError ? <DiscoveryState icon="cloud-offline-outline" title={labels.errorTitle[language]} action={labels.retry[language]} onAction={social.retryProfileDiscovery} styles={styles} /> : null}
+      {showInitialLoading ? <ScreenDataState status="loading" /> : null}
+      {showError ? <ScreenDataState status="error" onRetry={social.retryProfileDiscovery} /> : null}
       {showEmpty ? <DiscoveryState icon="planet-outline" title={labels.emptyTitle[language]} body={labels.emptyBody[language]} styles={styles} /> : null}
-
-      {visible.length ? (
-        <View style={[styles.galleryGrid, { gap: horizontalGap }]}>
-          {visible.map((user, index) => (
-            <PortraitCard key={user.uid || user.username} user={user} width={cardWidth} index={index} language={language} reducedMotion={reducedMotion} onPress={() => openProfile(user)} styles={styles} />
-          ))}
-        </View>
-      ) : null}
-
-      {visibleCount < filtered.length || social.hasMoreUsers ? (
+      </>
+    },
+    ...rows.map((row, rowIndex) => ({
+      key: `profile-row:${row.map((user) => user.uid || user.username).join(":")}`,
+      content: <View style={[styles.galleryRow, { gap: horizontalGap }]}>{row.map((user, columnIndex) => (
+        <PortraitCard key={user.uid || user.username} user={user} width={cardWidth} index={rowIndex * 2 + columnIndex} language={language} reducedMotion={reducedMotion} following={social.isFollowing(user)} onFollow={() => void toggleFollow(user)} onPress={() => openProfile(user)} styles={styles} />
+      ))}</View>
+    })),
+    {
+      key: "profile-discovery-footer",
+      content: visibleCount < 100 && (visibleCount < filtered.length || social.hasMoreUsers) ? (
         <Pressable onPress={() => void showMore()} style={styles.moreButton}>
           <Text style={styles.moreText}>{labels.more[language]}</Text>
           <Ionicons name="chevron-down" size={17} color={v2Colors.cyan} />
         </Pressable>
-      ) : null}
-    </AppChrome>
-  );
+      ) : <View style={styles.footerSpace} />
+    }
+  ];
+
+  return <AppChrome title={uiCopy.discover[language]} showBackButton backToHome virtualizedItems={virtualizedItems} virtualizedInitialNumToRender={4} />;
 }
 
 function DiscoveryHero({ users, reducedMotion, styles, language }: { users: SuggestedUser[]; reducedMotion: boolean; styles: ReturnType<typeof createStyles>; language: Language }) {
@@ -224,7 +235,7 @@ function DiscoveryHero({ users, reducedMotion, styles, language }: { users: Sugg
   );
 }
 
-function PortraitCard({ user, width, index, featured = false, language, reducedMotion, onPress, styles }: { user: SuggestedUser; width: number; index: number; featured?: boolean; language: Language; reducedMotion: boolean; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
+function PortraitCard({ user, width, index, featured = false, following, language, reducedMotion, onFollow, onPress, styles }: { user: SuggestedUser; width: number; index: number; featured?: boolean; following: boolean; language: Language; reducedMotion: boolean; onFollow: () => void; onPress: () => void; styles: ReturnType<typeof createStyles> }) {
   const entrance = useRef(new Animated.Value(reducedMotion ? 1 : 0)).current;
   const pressScale = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -233,38 +244,36 @@ function PortraitCard({ user, width, index, featured = false, language, reducedM
   }, [entrance, index, reducedMotion]);
   const country = localizedCountry(user, language);
   const role = getRoleItem(user.role);
-  const imageSize = Math.round(width * (featured ? 1.18 : 1.25));
   return (
     <Animated.View style={{ width, opacity: entrance, transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }, { scale: Animated.multiply(entrance.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1] }), pressScale) }] }}>
-      <Pressable onPress={onPress} onPressIn={() => Animated.spring(pressScale, { toValue: 0.97, speed: 32, bounciness: 0, useNativeDriver: true }).start()} onPressOut={() => Animated.spring(pressScale, { toValue: 1, speed: 24, bounciness: 7, useNativeDriver: true }).start()} style={[styles.portraitCard, featured && styles.featuredCard]} accessibilityRole="button" accessibilityLabel={`${user.name}, @${user.username}`}>
-        <ProfileAvatar uri={user.image} size={imageSize} borderRadius={20} style={styles.portraitImage} />
-        <ClippedGradient
-          colors={["rgba(8,12,30,0.02)", "rgba(8,12,30,0.42)", "rgba(8,12,30,0.98)"]}
-          androidColors={["rgba(8,12,30,0.08)", "rgba(8,12,30,0.98)"]}
-          locations={[0.28, 0.58, 1]}
-          radius={20}
-        />
+      <View style={[styles.portraitCard, featured && styles.featuredCard]}>
         <View style={styles.cardHighlight} />
-        <View style={styles.portraitInfo}>
-          <View style={styles.rolePill}>
-            <Ionicons name={user.isPremium ? "diamond" : getRoleIcon(user.role)} size={10} color={user.isPremium ? "#F4BF4F" : "#38D7E8"} />
-            <Text style={styles.roleText} numberOfLines={1}>{user.isPremium ? labels.premium[language] : role.label[language]}</Text>
+        <Pressable onPress={onPress} onPressIn={() => Animated.spring(pressScale, { toValue: 0.97, speed: 32, bounciness: 0, useNativeDriver: true }).start()} onPressOut={() => Animated.spring(pressScale, { toValue: 1, speed: 24, bounciness: 7, useNativeDriver: true }).start()} style={styles.profilePress} accessibilityRole="button" accessibilityLabel={`${user.name}, @${user.username}`}>
+          <ProfileAvatar uri={user.image} size={featured ? 58 : 52} borderRadius={29} style={styles.portraitImage} />
+          <View style={styles.portraitInfo}>
+            <Text style={styles.portraitName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.76}>{user.name}</Text>
+            <Text style={styles.portraitUsername} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>@{user.username}</Text>
+            {country ? <Text style={styles.countryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{country}</Text> : null}
           </View>
-          <Text style={styles.portraitName} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.76}>{user.name}</Text>
-          <Text style={styles.portraitUsername} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>@{user.username}</Text>
-          {country ? <Text style={styles.countryText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{country}</Text> : null}
+        </Pressable>
+        <View style={styles.cardFooter}>
+          <View style={styles.rolePill}>
+            <Ionicons name={getRoleIcon(user.role)} size={10} color="#38D7E8" />
+            <Text style={styles.roleText} numberOfLines={1}>{role.label[language]}</Text>
+            {user.isPremium ? <Ionicons name="diamond" size={9} color="#F4BF4F" /> : null}
+          </View>
+          <Pressable accessibilityRole="button" onPress={onFollow} style={[styles.followButton, following && styles.followingButton]}>
+            <Ionicons name={following ? "checkmark" : "person-add-outline"} size={12} color={following ? "#AEB8D0" : "#071126"} />
+            <Text style={[styles.followText, following && styles.followingText]} numberOfLines={1}>{following ? (language === "tr" ? "Takipte" : language === "ru" ? "Подписка" : language === "uz" ? "Kuzatilmoqda" : "Following") : (language === "tr" ? "Takip" : language === "ru" ? "Подписаться" : language === "uz" ? "Kuzatish" : "Follow")}</Text>
+          </Pressable>
         </View>
-      </Pressable>
+      </View>
     </Animated.View>
   );
 }
 
 function SectionTitle({ title, styles }: { title: string; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.sectionTitleRow}><View style={styles.sectionAccent} /><Text style={styles.sectionTitle}>{title}</Text></View>;
-}
-
-function PortraitSkeletonGrid({ cardWidth, gap, styles }: { cardWidth: number; gap: number; styles: ReturnType<typeof createStyles> }) {
-  return <View style={[styles.galleryGrid, { gap }]}>{[0, 1, 2, 3].map((item) => <View key={item} style={[styles.skeletonCard, { width: cardWidth }]}><View style={styles.skeletonGlow} /></View>)}</View>;
 }
 
 function DiscoveryState({ icon, title, body, action, onAction, styles }: { icon: keyof typeof Ionicons.glyphMap; title: string; body?: string; action?: string; onAction?: () => void; styles: ReturnType<typeof createStyles> }) {
@@ -279,9 +288,9 @@ function matchesFilter(user: SuggestedUser, filter: ProfileFilter) {
 
 function localizedCountry(user: SuggestedUser, language: Language) {
   const code = resolveCountryCodeFromUser(user);
-  const match = countryCommunities.find((country) => country.id === user.countryId || country.code === code);
-  if (!match && !user.country) return "";
-  return `${code ? flagFromCode(code) : ""}${code ? " " : ""}${match?.name[language] ?? user.country}`;
+  const name = getLocalizedCountryName(code ?? user.countryId ?? user.country, language);
+  if (!name) return "";
+  return `${code ? `${flagFromCode(code)} ` : ""}${name}`;
 }
 
 function flagFromCode(code: string) {
@@ -327,17 +336,23 @@ function createStyles(colors: ReturnType<typeof getThemeColors>, compact: boolea
     optionTextActive: { color: "#071126" },
     galleryHeading: { minHeight: 52, marginTop: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
     refreshingText: { ...safeTextLayout, color: "#38D7E8", fontSize: 9.5, lineHeight: 13, fontWeight: "800", textAlign: "right", maxWidth: 100 },
-    galleryGrid: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start" },
-    portraitCard: { width: "100%", aspectRatio: 0.8, borderRadius: 20, overflow: "hidden", backgroundColor: "#16213D", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", elevation: 4 },
-    featuredCard: { aspectRatio: 0.84, elevation: 6 },
-    portraitImage: { position: "absolute", left: 0, top: 0, borderWidth: 0, backgroundColor: "#21335A" },
+    galleryRow: { flexDirection: "row", alignItems: "stretch", marginBottom: 10 },
+    portraitCard: { width: "100%", minHeight: compact ? 154 : 164, borderRadius: 18, overflow: "hidden", backgroundColor: "#16213D", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", padding: compact ? 10 : 12 },
+    featuredCard: { minHeight: compact ? 148 : 156 },
+    profilePress: { alignItems: "center", flex: 1, minWidth: 0 },
+    portraitImage: { borderWidth: 1, borderColor: "rgba(244,191,79,0.26)", backgroundColor: "#21335A" },
     cardHighlight: { position: "absolute", left: 15, right: 15, top: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" },
-    portraitInfo: { position: "absolute", left: 11, right: 11, bottom: 11 },
-    rolePill: { alignSelf: "flex-start", minHeight: 20, maxWidth: "92%", borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", backgroundColor: "rgba(8,12,30,0.58)", flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, marginBottom: 5 },
+    portraitInfo: { alignItems: "center", width: "100%", marginTop: 7 },
+    cardFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 5, marginTop: 8 },
+    rolePill: { flexShrink: 1, minHeight: 22, maxWidth: "54%", borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", backgroundColor: "rgba(8,12,30,0.58)", flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7 },
     roleText: { ...safeTextLayout, color: "#F6F0DF", fontSize: 8.5, lineHeight: 12, fontWeight: "900", flexShrink: 1 },
-    portraitName: { ...safeTextLayout, color: "#FFF9EC", fontSize: compact ? 13.5 : 15, lineHeight: compact ? 17 : 19, fontWeight: "900", minHeight: compact ? 34 : 38 },
+    portraitName: { ...safeTextLayout, color: "#FFF9EC", fontSize: compact ? 12.5 : 14, lineHeight: compact ? 16 : 18, fontWeight: "900" },
     portraitUsername: { ...safeTextLayout, color: "#BFC8DB", fontSize: compact ? 9.5 : 10.5, lineHeight: 14, fontWeight: "800" },
     countryText: { ...safeTextLayout, color: "#F4BF4F", fontSize: compact ? 9 : 10, lineHeight: 14, fontWeight: "800", marginTop: 2 },
+    followButton: { minHeight: 26, borderRadius: 999, backgroundColor: "#38D7E8", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: compact ? 7 : 9 },
+    followingButton: { backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" },
+    followText: { color: "#071126", fontSize: compact ? 8.5 : 9.5, fontWeight: "900" },
+    followingText: { color: "#AEB8D0" },
     stateCard: { minHeight: 210, borderRadius: 20, borderWidth: 1, borderColor: "rgba(56,215,232,0.16)", backgroundColor: "rgba(17,24,49,0.72)", alignItems: "center", justifyContent: "center", padding: 22 },
     stateOrbit: { width: 68, height: 42, borderRadius: 35, borderWidth: 1, borderColor: "rgba(56,215,232,0.36)", alignItems: "center", justifyContent: "center", transform: [{ rotate: "-8deg" }] },
     stateTitle: { ...safeTextLayout, color: "#F6F0DF", fontSize: 16, lineHeight: 22, fontWeight: "900", textAlign: "center", marginTop: 13 },
@@ -347,6 +362,7 @@ function createStyles(colors: ReturnType<typeof getThemeColors>, compact: boolea
     skeletonCard: { aspectRatio: 0.8, borderRadius: 20, overflow: "hidden", backgroundColor: "rgba(33,51,90,0.72)" },
     skeletonGlow: { position: "absolute", left: 12, right: 12, bottom: 13, height: 45, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.06)" },
     moreButton: { minHeight: 48, borderRadius: 999, backgroundColor: "rgba(56,215,232,0.09)", borderWidth: 1, borderColor: "rgba(56,215,232,0.24)", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 14 },
-    moreText: { color: "#F6F0DF", fontSize: 12, fontWeight: "900" }
+    moreText: { color: "#F6F0DF", fontSize: 12, fontWeight: "900" },
+    footerSpace: { height: 12 }
   });
 }

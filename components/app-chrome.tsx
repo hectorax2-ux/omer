@@ -3,7 +3,6 @@ import { Animated, Easing, FlatList, Image, Keyboard, KeyboardAvoidingView, Link
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { ClippedGradient } from "@/components/ui/clipped-gradient";
 import { useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { UserRoleId } from "@/constants/profile-taxonomy";
 import { AppTheme, colors, getThemeColors, isBrightTheme } from "@/constants/theme";
@@ -103,8 +102,9 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const routeShortcutVisibility = getAppShortcutVisibility(pathname, { keyboardFocused: keyboardAvoiding || keyboardVisible });
   const shortcutVisibility = showFloatingShortcuts ? routeShortcutVisibility : { showAtlasClub: false, showPremium: false };
   const normalizedPathname = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  const showNewsShortcut = showFloatingShortcuts && (shortcutVisibility.showAtlasClub || shortcutVisibility.showPremium) && normalizedPathname !== "/art-news";
   const showFloatingCreate = showFloatingShortcuts && normalizedPathname === "/feed" && !keyboardVisible && !!floatingCreateAction;
-  const hasFloatingShortcuts = shortcutVisibility.showAtlasClub || shortcutVisibility.showPremium || showFloatingCreate;
+  const hasFloatingShortcuts = shortcutVisibility.showAtlasClub || shortcutVisibility.showPremium || showFloatingCreate || showNewsShortcut;
   const { account, isAuthenticated, isEmailVerified, resendVerificationEmail } = useAccount();
   const { trackPageViewForAds } = useAds();
   const { notifications: systemNotifications } = useArtSystems();
@@ -132,7 +132,8 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const fixedFooterBottom = hasBottomNavigation
     ? bottomNavigationHeight + navigationLayout.floatingActionDockGap
     : resolvedBottomInset + 8;
-  const shortcutContentBottom = floatingBottom + navigationLayout.floatingContentGap + (hasFloatingShortcuts ? navigationLayout.floatingActionSize : 0);
+  const shortcutRows = (shortcutVisibility.showAtlasClub || shortcutVisibility.showPremium || showFloatingCreate ? 1 : 0) + (showNewsShortcut ? 1 : 0);
+  const shortcutContentBottom = floatingBottom + navigationLayout.floatingContentGap + shortcutRows * navigationLayout.floatingActionSize + Math.max(0, shortcutRows - 1) * 8;
   const fixedFooterContentBottom = fixedFooter
     ? fixedFooterBottom + fixedFooterHeight + navigationLayout.floatingContentGap
     : 0;
@@ -309,6 +310,20 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
         </View>
       ) : null}
       {hasFloatingShortcuts ? (
+        <>
+        {showNewsShortcut ? (
+          <View pointerEvents="box-none" style={[styles.floatingActions, { right: horizontalPadding, bottom: floatingBottom + navigationLayout.floatingActionSize + 8 }]}>
+            <FloatingShortcutButton
+              accessibilityLabel={language === "tr" ? "Sanat Haberleri" : language === "ru" ? "Новости искусства" : language === "uz" ? "San’at yangiliklari" : "Art News"}
+              label={language === "tr" ? "Haberler" : language === "ru" ? "Новости" : language === "uz" ? "Yangiliklar" : "News"}
+              onPress={() => navigate(() => router.push("/art-news" as never))}
+              reducedMotion={reducedMotion}
+              variant="news"
+            >
+              <Ionicons name="newspaper-outline" size={13} color="#F5DDE4" />
+            </FloatingShortcutButton>
+          </View>
+        ) : null}
         <View pointerEvents="box-none" style={[styles.floatingActions, { right: horizontalPadding, bottom: floatingBottom, gap: width < 360 ? 7 : navigationLayout.floatingActionGap }]}>
           {shortcutVisibility.showAtlasClub ? (
             <FloatingShortcutButton
@@ -353,6 +368,7 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
             </Pressable>
           ) : null}
         </View>
+        </>
       ) : null}
       {showBottomDock ? <BottomDock themeColors={themeColors} pathname={pathname} theme={theme} onActiveTabPress={() => usesVirtualizedContent ? virtualizedRef.current?.scrollToOffset({ offset: 0, animated: true }) : scrollRef.current?.scrollTo({ y: 0, animated: true })} onNavigate={navigate} /> : null}
       <GlobalAdOverlays />
@@ -368,7 +384,7 @@ function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, label, 
   label: string;
   onPress: () => void;
   reducedMotion: boolean;
-  variant: "violet" | "gold";
+  variant: "violet" | "gold" | "news";
   children: ReactNode;
 }) {
   const press = useRef(new Animated.Value(0)).current;
@@ -389,15 +405,12 @@ function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, label, 
   }
 
   const violet = variant === "violet";
-  const gradient = violet
-    ? ["#4841A3", "#312E6F"] as const
-    : ["#594721", "#3D321D"] as const;
-
+  const news = variant === "news";
   return (
     <Animated.View
       style={[
         styles.floatingShortcutMotion,
-        violet ? styles.atlasClubShortcut : styles.premiumShortcut,
+        violet ? styles.atlasClubShortcut : news ? styles.newsShortcut : styles.premiumShortcut,
         {
           transform: [{ scale: reducedMotion ? 1 : press.interpolate({ inputRange: [0, 1], outputRange: [1, 0.96] }) }]
         }
@@ -415,13 +428,12 @@ function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, label, 
         onPressOut={() => setPressed(false)}
         style={({ pressed }) => [
           styles.floatingPill,
-          violet ? styles.floatingPillViolet : styles.floatingPillGold,
+          violet ? styles.floatingPillViolet : news ? styles.floatingPillNews : styles.floatingPillGold,
           hovered && styles.floatingPillHovered,
           pressed && styles.floatingPillPressed
         ]}
       >
-        {Platform.OS === "android" ? null : <ClippedGradient colors={gradient} start={{ x: 0.06, y: 0.08 }} end={{ x: 0.94, y: 0.92 }} radius={18} pointerEvents="none" />}
-        <View pointerEvents="none" style={[styles.floatingPillHoverWash, violet ? styles.floatingPillHoverWashViolet : styles.floatingPillHoverWashGold, hovered && styles.floatingPillHoverWashVisible]} />
+        <View pointerEvents="none" style={[styles.floatingPillHoverWash, violet ? styles.floatingPillHoverWashViolet : news ? styles.floatingPillHoverWashNews : styles.floatingPillHoverWashGold, hovered && styles.floatingPillHoverWashVisible]} />
         {children}
         <Text numberOfLines={1} maxFontSizeMultiplier={1.15} style={styles.floatingPillLabel}>{label}</Text>
       </Pressable>
@@ -476,22 +488,74 @@ function AppMenu({ visible, onClose, theme, onNavigate }: { visible: boolean; on
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const themeColors = getThemeColors(theme);
   const themeStyles = useMemo(() => makeChromeThemeStyles(themeColors, theme), [themeColors, theme]);
-  const primaryItems = [
+  const menuCopy = {
+    tr: {
+      explore: "Keşfet",
+      community: "Topluluk",
+      account: "Hesap & Destek",
+      badges: "Rozetler & Roller",
+      visitors: "Ziyaretçiler",
+      inviteEyebrow: "Birlikte keşfet",
+      invite: "Arkadaşını davet et",
+      theme: "Aktif tema",
+      logout: "Çıkış yap",
+      close: "Menüyü kapat"
+    },
+    en: {
+      explore: "Explore",
+      community: "Community",
+      account: "Account & Support",
+      badges: "Badges & Roles",
+      visitors: "Visitors",
+      inviteEyebrow: "Explore together",
+      invite: "Invite a friend",
+      theme: "Active theme",
+      logout: "Log out",
+      close: "Close menu"
+    },
+    ru: {
+      explore: "Исследовать",
+      community: "Сообщество",
+      account: "Аккаунт и помощь",
+      badges: "Значки и роли",
+      visitors: "Посетители",
+      inviteEyebrow: "Исследуйте вместе",
+      invite: "Пригласить друга",
+      theme: "Активная тема",
+      logout: "Выйти",
+      close: "Закрыть меню"
+    },
+    uz: {
+      explore: "Kashf etish",
+      community: "Hamjamiyat",
+      account: "Hisob va yordam",
+      badges: "Nishonlar va rollar",
+      visitors: "Tashrifchilar",
+      inviteEyebrow: "Birga kashf eting",
+      invite: "Do‘stingizni taklif qiling",
+      theme: "Faol mavzu",
+      logout: "Chiqish",
+      close: "Menyuni yopish"
+    }
+  }[language];
+  const discoverItems: readonly MenuHubItem[] = [
+    { title: language === "tr" ? "Sanat Haberleri" : language === "ru" ? "Новости искусства" : language === "uz" ? "San’at yangiliklari" : "Art News", icon: "newspaper-outline", path: "/art-news" },
     { title: language === "tr" ? "Müze Keşfi" : language === "ru" ? "Поиск музеев" : language === "uz" ? "Muzey kashfiyoti" : "Museum Explore", icon: "map-outline", path: "/museum-find" },
     { title: language === "tr" ? "Sanatçılar" : language === "ru" ? "Художники" : language === "uz" ? "San'atkorlar" : "Artists", icon: "people-outline", path: "/artists" },
-    { title: language === "tr" ? "Profil Keşfet" : language === "ru" ? "Поиск профилей" : language === "uz" ? "Profillarni kashf et" : "Discover Profiles", icon: "compass-outline", path: "/discover" },
+    { title: language === "tr" ? "Profil Keşfet" : language === "ru" ? "Поиск профилей" : language === "uz" ? "Profil kashfiyoti" : "Discover Profiles", icon: "compass-outline", path: "/discover" }
+  ];
+  const communityItems: readonly MenuHubItem[] = [
     { title: copy.ranking[language], icon: "bar-chart-outline", path: "/leaderboards" },
-    { title: language === "tr" ? "Roller / Rozetler" : language === "ru" ? "Роли / значки" : language === "uz" ? "Rollar / nishonlar" : "Roles / Badges", icon: "ribbon-outline", path: "/roles-badges" },
-    { title: uiCopy.inviteFriend[language], icon: "share-social-outline", path: "/invite" },
-  ] as const;
-  const secondaryItems = [
-    { title: language === "tr" ? "Profil Ziyaretleri" : language === "ru" ? "Посещения профиля" : language === "uz" ? "Profil tashriflari" : "Profile Visits", icon: "eye-outline", path: "/profile-visits" },
+    { title: menuCopy.badges, icon: "ribbon-outline", path: "/roles-badges" },
+    { title: menuCopy.visitors, icon: "eye-outline", path: "/profile-visits" },
     { title: language === "tr" ? "Sanatçıya Mektup" : language === "ru" ? "Письмо художнику" : language === "uz" ? "Rassomga maktub" : "Letter to the Artist", icon: "mail-outline", path: "/time-capsule" },
+  ];
+  const accountItems: readonly MenuHubItem[] = [
     { title: uiCopy.about[language], icon: "information-circle-outline", path: "/about" },
     { title: uiCopy.support[language], icon: "help-circle-outline", path: "/support" },
-    ...(isAuthenticated ? [{ title: language === "tr" ? "Engellenenler" : language === "ru" ? "Заблокированные" : language === "uz" ? "Bloklanganlar" : "Blocked users", icon: "ban-outline" as const, path: "/blocked-users" as const }] : []),
+    ...(isAuthenticated ? [{ title: language === "tr" ? "Engellenenler" : language === "ru" ? "Блокировки" : language === "uz" ? "Bloklanganlar" : "Blocked users", icon: "ban-outline" as const, path: "/blocked-users" }] : []),
     { title: uiCopy.settings[language], icon: "settings-outline", path: "/settings" }
-  ] as const;
+  ];
 
   function open(path: string) {
     onClose();
@@ -518,54 +582,119 @@ function AppMenu({ visible, onClose, theme, onNavigate }: { visible: boolean; on
           <View style={[styles.menuPanel, themeStyles.panel]}>
             <View style={styles.menuHeader}>
               <Text style={[styles.menuTitle, { color: themeColors.ivory }]}>Art Atlas</Text>
-              <Pressable onPress={onClose} style={styles.modalCloseButton}>
+              <Pressable onPress={onClose} style={[styles.modalCloseButton, styles.menuCloseButton]} accessibilityRole="button" accessibilityLabel={menuCopy.close}>
                 <Ionicons name="close" size={22} color={themeColors.ivory} />
               </Pressable>
             </View>
-            <View style={styles.menuLangRow}>
-              {(["tr", "en", "ru", "uz"] as const).map((code) => (
-                <Pressable key={code} onPress={() => setLanguage(code)} style={[styles.menuLang, { backgroundColor: themeColors.panelSoft }, language === code && { backgroundColor: themeColors.gold }]}>
-                  <Text style={[styles.menuLangText, { color: themeColors.ivory }, language === code && { color: themeColors.ink }]}>{code.toUpperCase()}</Text>
+            <ScrollView style={styles.menuHubScroll} contentContainerStyle={styles.menuHubContent} showsVerticalScrollIndicator={false} bounces={false}>
+              <View style={styles.menuLangRow}>
+                {(["tr", "en", "ru", "uz"] as const).map((code) => (
+                  <Pressable
+                    key={code}
+                    onPress={() => setLanguage(code)}
+                    style={({ pressed }) => [
+                      styles.menuLang,
+                      { backgroundColor: themeColors.panelSoft, borderColor: themeColors.line },
+                      language === code && { backgroundColor: themeColors.gold, borderColor: themeColors.gold },
+                      pressed && styles.menuHubPressed
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: language === code }}
+                  >
+                    <Text style={[styles.menuLangText, { color: themeColors.ivory }, language === code && { color: themeColors.ink }]}>{code.toUpperCase()}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <MenuHubSection title={menuCopy.explore} items={discoverItems} onOpen={open} colors={themeColors} emphasized />
+              <MenuHubSection title={menuCopy.community} items={communityItems} onOpen={open} colors={themeColors} />
+
+              <Pressable
+                onPress={() => open("/invite")}
+                style={({ pressed }) => [styles.menuInviteCard, { backgroundColor: themeColors.panelSoft, borderColor: themeColors.gold }, pressed && styles.menuHubPressed]}
+                accessibilityRole="button"
+              >
+                <View style={[styles.menuInviteIcon, { borderColor: themeColors.line }]}>
+                  <Ionicons name="share-social-outline" size={20} color={themeColors.gold} />
+                </View>
+                <View style={styles.menuInviteCopy}>
+                  <Text style={[styles.menuInviteEyebrow, { color: themeColors.gold }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{menuCopy.inviteEyebrow}</Text>
+                  <Text style={[styles.menuInviteTitle, { color: themeColors.ivory }]} numberOfLines={2}>{menuCopy.invite}</Text>
+                </View>
+                <Ionicons name="arrow-forward" size={18} color={themeColors.gold} />
+              </Pressable>
+
+              <MenuHubSection title={menuCopy.account} items={accountItems} onOpen={open} colors={themeColors} compact />
+
+              <Pressable
+                onPress={openThemePicker}
+                style={({ pressed }) => [styles.menuThemeCard, { backgroundColor: themeColors.panelSoft, borderColor: themeColors.line }, pressed && styles.menuHubPressed]}
+                accessibilityRole="button"
+              >
+                <Ionicons name={getThemeMenuIcon(theme)} size={18} color={themeColors.gold} />
+                <View style={styles.menuThemeCopy}>
+                  <Text style={[styles.menuThemeLabel, { color: themeColors.muted }]}>{menuCopy.theme}</Text>
+                  <Text style={[styles.menuThemeText, { color: themeColors.ivory }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
+                    {getThemePickerLabel(theme, language)}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={themeColors.muted} />
+              </Pressable>
+
+              {isAuthenticated ? (
+                <Pressable onPress={signOutFromMenu} style={({ pressed }) => [styles.menuLogoutRow, { borderTopColor: themeColors.line }, pressed && styles.menuHubPressed]} accessibilityRole="button">
+                  <Ionicons name="log-out-outline" size={17} color={themeColors.muted} />
+                  <Text style={[styles.menuLogoutText, { color: themeColors.muted }]}>{menuCopy.logout}</Text>
                 </Pressable>
-              ))}
-            </View>
-            {primaryItems.map((item) => (
-              <Pressable key={item.path} onPress={() => open(item.path)} style={styles.menuRow}>
-                <Ionicons name={item.icon} size={19} color={themeColors.gold} />
-                <Text style={[styles.menuRowText, { color: themeColors.ivory }]}>{item.title}</Text>
-                <Ionicons name="chevron-forward" size={17} color={themeColors.muted} />
-              </Pressable>
-            ))}
-            <View style={[styles.menuDivider, { backgroundColor: themeColors.line }]} />
-            {secondaryItems.map((item) => (
-              <Pressable key={item.path} onPress={() => open(item.path)} style={styles.menuRow}>
-                <Ionicons name={item.icon} size={19} color={themeColors.gold} />
-                <Text style={[styles.menuRowText, { color: themeColors.ivory }]}>{item.title}</Text>
-                <Ionicons name="chevron-forward" size={17} color={themeColors.muted} />
-              </Pressable>
-            ))}
-            <Pressable onPress={openThemePicker} style={styles.menuRow}>
-              <Ionicons name={getThemeMenuIcon(theme)} size={19} color={themeColors.gold} />
-              <Text style={[styles.menuRowText, { color: themeColors.ivory }]}>
-                {language === "tr" ? "Tema seç" : language === "ru" ? "Выбрать тему" : language === "uz" ? "Mavzu tanlash" : "Choose theme"}
-              </Text>
-              <Text style={[styles.menuThemeText, { color: themeColors.gold }]}>
-                {getThemePickerLabel(theme, language)}
-              </Text>
-            </Pressable>
-            {isAuthenticated ? (
-              <Pressable onPress={signOutFromMenu} style={[styles.menuRow, styles.menuLogoutRow]}>
-                <Ionicons name="log-out-outline" size={19} color={themeColors.gold} />
-                <Text style={[styles.menuRowText, { color: themeColors.ivory }]}>
-                  {language === "tr" ? "Çıkış yap" : language === "ru" ? "Выйти" : language === "uz" ? "Chiqish" : "Log out"}
-                </Text>
-              </Pressable>
-            ) : null}
+              ) : null}
+            </ScrollView>
           </View>
         </View>
       </Modal>
       <ThemePickerModal visible={themePickerOpen} onClose={() => setThemePickerOpen(false)} />
     </>
+  );
+}
+
+type MenuHubItem = {
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  path: string;
+};
+
+function MenuHubSection({ title, items, onOpen, colors: themeColors, emphasized = false, compact = false }: {
+  title: string;
+  items: readonly MenuHubItem[];
+  onOpen: (path: string) => void;
+  colors: ReturnType<typeof getThemeColors>;
+  emphasized?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <View style={styles.menuHubSection}>
+      <Text style={[styles.menuHubSectionTitle, { color: themeColors.muted }]}>{title.toLocaleUpperCase()}</Text>
+      <View style={styles.menuHubGrid}>
+        {items.map((item) => (
+          <Pressable
+            key={item.path}
+            onPress={() => onOpen(item.path)}
+            style={({ pressed }) => [
+              styles.menuHubCard,
+              emphasized && styles.menuHubCardEmphasized,
+              compact && styles.menuHubCardCompact,
+              { backgroundColor: themeColors.panelSoft, borderColor: emphasized ? themeColors.gold : themeColors.line },
+              pressed && styles.menuHubPressed
+            ]}
+            accessibilityRole="button"
+          >
+            <Ionicons name={item.icon} size={emphasized ? 19 : 18} color={themeColors.gold} />
+            <Text style={[styles.menuHubCardText, { color: themeColors.ivory }]} numberOfLines={2} maxFontSizeMultiplier={1.15}>
+              {item.title}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -1146,6 +1275,10 @@ const styles = StyleSheet.create({
     borderColor: "rgba(242,217,151,0.3)",
     backgroundColor: "#493A20"
   },
+  floatingPillNews: {
+    borderColor: "rgba(235,176,195,0.28)",
+    backgroundColor: "#542238"
+  },
   floatingPillLabel: {
     color: "#FFFDF8",
     fontSize: 10,
@@ -1163,6 +1296,9 @@ const styles = StyleSheet.create({
   },
   floatingPillHoverWashGold: {
     backgroundColor: "rgba(255,232,171,0.09)"
+  },
+  floatingPillHoverWashNews: {
+    backgroundColor: "rgba(255,220,232,0.08)"
   },
   floatingPillHoverWashVisible: {
     opacity: 1
@@ -1184,6 +1320,13 @@ const styles = StyleSheet.create({
     shadowColor: "#2B2417",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2
+  },
+  newsShortcut: {
+    shadowColor: "#3B1628",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
     shadowRadius: 3,
     elevation: 2
   },
@@ -1462,6 +1605,8 @@ const styles = StyleSheet.create({
   menuPanel: {
     marginLeft: "auto",
     width: 292,
+    maxWidth: "100%",
+    maxHeight: "100%",
     borderRadius: 8,
     borderWidth: 1,
     borderColor: v2Colors.border,
@@ -1474,6 +1619,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between"
   },
+  menuCloseButton: {
+    width: 44,
+    height: 44
+  },
   menuTitle: {
     color: colors.ivory,
     fontSize: 18,
@@ -1482,12 +1631,13 @@ const styles = StyleSheet.create({
   menuLangRow: {
     flexDirection: "row",
     gap: 7,
-    marginBottom: 8
+    marginBottom: 4
   },
   menuLang: {
     flex: 1,
-    minHeight: 34,
+    minHeight: 44,
     borderRadius: 8,
+    borderWidth: 1,
     backgroundColor: colors.panelSoft,
     alignItems: "center",
     justifyContent: "center"
@@ -1497,46 +1647,133 @@ const styles = StyleSheet.create({
   },
   menuLangText: {
     color: colors.ivory,
-    fontWeight: "900"
+    fontSize: 12,
+    fontWeight: "800"
   },
   menuLangTextActive: {
     color: colors.ink
   },
-  menuRow: {
-    minHeight: 46,
-    borderRadius: 8,
+  menuHubScroll: {
+    flexShrink: 1
+  },
+  menuHubContent: {
+    paddingBottom: 2,
+    gap: 8
+  },
+  menuHubSection: {
+    gap: 5
+  },
+  menuHubSectionTitle: {
+    paddingHorizontal: 2,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "800",
+    letterSpacing: 0.8
+  },
+  menuHubGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  menuHubCard: {
+    flexBasis: "48%",
+    flexGrow: 1,
+    minHeight: 54,
+    borderRadius: 10,
+    borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 7
+  },
+  menuHubCardEmphasized: {
+    minHeight: 60
+  },
+  menuHubCardCompact: {
+    minHeight: 50
+  },
+  menuHubCardText: {
+    flex: 1,
+    flexShrink: 1,
+    fontSize: 12.5,
+    lineHeight: 15.5,
+    fontWeight: "800"
+  },
+  menuHubPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.985 }]
+  },
+  menuInviteCard: {
+    minHeight: 58,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 7
+  },
+  menuInviteIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  menuInviteCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  menuInviteEyebrow: {
+    fontSize: 9.5,
+    lineHeight: 12,
+    fontWeight: "800",
+    letterSpacing: 0.35,
+    textTransform: "uppercase"
+  },
+  menuInviteTitle: {
+    fontSize: 13.5,
+    lineHeight: 17,
+    fontWeight: "800"
+  },
+  menuThemeCard: {
+    minHeight: 48,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
     paddingHorizontal: 10
   },
-  menuDivider: {
-    height: 1,
-    marginVertical: 6
+  menuThemeCopy: {
+    flex: 1,
+    minWidth: 0
   },
-  menuRowText: {
-    color: colors.ivory,
-    fontWeight: "900",
-    flex: 1
-  },
-  menuPremiumRow: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(217,184,101,0.55)",
-    backgroundColor: "rgba(217,184,101,0.12)",
-    paddingHorizontal: 8
-  },
-  menuPremiumText: {
-    color: "#f5d98d",
-    fontSize: 15
+  menuThemeLabel: {
+    fontSize: 9.5,
+    lineHeight: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4
   },
   menuThemeText: {
-    color: colors.gold,
-    fontWeight: "900"
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: "800"
   },
   menuLogoutRow: {
-    marginTop: 6,
+    minHeight: 44,
     borderTopWidth: 1,
-    borderTopColor: "rgba(217,184,101,0.18)"
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingTop: 4
+  },
+  menuLogoutText: {
+    fontSize: 12.5,
+    fontWeight: "700"
   }
 });

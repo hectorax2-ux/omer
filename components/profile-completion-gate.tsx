@@ -1,9 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   DISPLAY_NAME_MAX_LENGTH,
   DISPLAY_NAME_MIN_LENGTH,
@@ -15,17 +14,17 @@ import {
   normalizeUsername
 } from "@/constants/account-limits";
 import { getThemeColors } from "@/constants/theme";
+import { CountryPicker } from "@/components/country-picker";
+import { ProfilePhotoPicker, type ProfilePhotoSelection } from "@/components/profile-photo-picker";
 import { ThemePickerModal } from "@/components/theme-picker-modal";
 import { useAccount } from "@/hooks/use-account";
 import { useAppTheme } from "@/hooks/use-app-theme";
-import { useArtists } from "@/hooks/use-artists";
 import { useLanguage } from "@/hooks/use-language";
 import { useLegal } from "@/hooks/use-legal";
 import { Language } from "@/types/content";
-import { uploadFormatHint, validatePickedImageAsset } from "@/utils/image-upload-validation";
+import { uploadFormatHint } from "@/utils/image-upload-validation";
 import { imageSource } from "@/utils/image-source";
-import { findCountryByInput, normalizeCountryInput } from "@/utils/country-utils";
-import { countryOptions } from "@/utils/country-options";
+import { findCountryByCode, resolveCountryCode } from "@/utils/country-utils";
 
 const THEME_ONBOARDING_VERSION = "1";
 
@@ -123,7 +122,6 @@ export function ProfileCompletionGate() {
   const { language, hasChosenLanguage, isLanguageReady } = useLanguage();
   const { hasAcceptedLegal, isLegalReady } = useLegal();
   const { theme, isThemeReady } = useAppTheme();
-  const { width } = useWindowDimensions();
   const colors = getThemeColors(theme);
   const styles = useMemo(() => createStyles(), []);
   const copy = texts[language];
@@ -133,28 +131,18 @@ export function ProfileCompletionGate() {
   const [themeSelected, setThemeSelected] = useState(false);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [country, setCountry] = useState("");
+  const [countryCode, setCountryCode] = useState("");
   const [avatar, setAvatar] = useState<string | undefined>();
   const [avatarRemoved, setAvatarRemoved] = useState(false);
   const [selectedArtistId, setSelectedArtistId] = useState<string>();
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
-  const [artistPickerOpen, setArtistPickerOpen] = useState(false);
-  const [countryQuery, setCountryQuery] = useState("");
-  const [artistQuery, setArtistQuery] = useState("");
+  const [photoPickerView, setPhotoPickerView] = useState<"actions" | "artists" | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const savingRef = useRef(false);
   const profileVisible = eligible && themeStepReady && themeSelected;
-  const { artists: availableArtists, loading: artistsLoading, error: artistsError, retry: retryArtists } = useArtists(100, profileVisible);
-  const selectedCountry = findCountryByInput(country);
-  const normalizedCountryQuery = normalizeCountryInput(countryQuery);
-  const normalizedArtistQuery = normalizeCountryInput(artistQuery);
-  const filteredCountries = useMemo(() => countryOptions.filter((item) => !normalizedCountryQuery || [item.code, item.name.tr, item.name.en, item.name.ru, item.name.uz]
-    .some((value) => normalizeCountryInput(value).includes(normalizedCountryQuery))), [normalizedCountryQuery]);
-  const filteredArtists = useMemo(() => availableArtists.filter((artist) => artist.image && (!normalizedArtistQuery || Object.values(artist.name)
-    .some((value) => normalizeCountryInput(value).includes(normalizedArtistQuery)))), [availableArtists, normalizedArtistQuery]);
-  const artistColumns = width >= 500 ? 4 : 3;
-  const artistCellWidth = (Math.min(width - 36, 500) - 32 - (artistColumns - 1) * 8) / artistColumns;
+  const draftUid = useRef("");
+  const selectedCountry = findCountryByCode(countryCode);
 
   useEffect(() => {
     if (!eligible || !account.uid) {
@@ -180,70 +168,32 @@ export function ProfileCompletionGate() {
   }, [account.uid, eligible]);
 
   useEffect(() => {
-    if (!profileVisible) return;
+    if (!profileVisible) { draftUid.current = ""; return; }
+    // Background profile metadata must not reset a form the user is editing.
+    if (draftUid.current === account.uid) return;
+    draftUid.current = account.uid;
     setUsername(account.username);
     setDisplayName(account.displayName);
-    setCountry(account.country);
+    setCountryCode(account.countryCode ?? resolveCountryCode(account.country) ?? "");
     setAvatar(account.avatar);
     setAvatarRemoved(false);
-    setSelectedArtistId(undefined);
+    setSelectedArtistId(account.avatarArtistId);
     setCountryPickerOpen(false);
-    setArtistPickerOpen(false);
-    setCountryQuery("");
-    setArtistQuery("");
+    setPhotoPickerView(null);
     setError("");
-  }, [account.avatar, account.country, account.displayName, account.uid, account.username, profileVisible]);
-
-  useEffect(() => {
-    if (!profileVisible || !account.avatar) return;
-    const match = availableArtists.find((artist) => artist.image === account.avatar);
-    if (match) setSelectedArtistId((current) => current ?? match.id);
-  }, [account.avatar, availableArtists, profileVisible]);
+  }, [account.avatar, account.avatarArtistId, account.country, account.countryCode, account.displayName, account.uid, account.username, profileVisible]);
 
   function completeThemeStep() {
     setThemeSelected(true);
-    void AsyncStorage.setItem(`art_atlas_theme_onboarding:${account.uid}`, THEME_ONBOARDING_VERSION);
+    void AsyncStorage.setItem(`art_atlas_theme_onboarding:${account.uid}`, THEME_ONBOARDING_VERSION).catch(() => undefined);
   }
 
-  async function pickAvatar() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError(copy.photoPermission);
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      allowsEditing: true,
-      aspect: [1, 1]
-    });
-    if (result.canceled) return;
-    const validation = validatePickedImageAsset(result.assets[0], language);
-    if (!validation.ok) {
-      setError(validation.message);
-      return;
-    }
-    setAvatar(result.assets[0].uri);
-    setAvatarRemoved(false);
-    setSelectedArtistId(undefined);
+  function selectProfilePhoto(selection: ProfilePhotoSelection) {
+    setAvatar(selection.uri);
+    setAvatarRemoved(selection.type === "default" && Boolean(account.avatar));
+    setSelectedArtistId(selection.type === "artist" ? selection.artistId : undefined);
     setError("");
-  }
-
-  function removeAvatar() {
-    setAvatar(undefined);
-    setAvatarRemoved(Boolean(account.avatar));
-    setSelectedArtistId(undefined);
-    setError("");
-  }
-
-  function chooseArtist(artistId: string) {
-    const artist = availableArtists.find((item) => item.id === artistId);
-    if (!artist) return;
-    setAvatar(artist.image);
-    setAvatarRemoved(false);
-    setSelectedArtistId(artist.id);
-    setArtistPickerOpen(false);
-    setError("");
+    return { ok: true };
   }
 
   async function save() {
@@ -263,7 +213,7 @@ export function ProfileCompletionGate() {
       setError(copy.nameInvalid);
       return;
     }
-    const canonicalCountry = findCountryByInput(country);
+    const canonicalCountry = findCountryByCode(countryCode);
     if (!canonicalCountry) {
       setError(copy.countryRequired);
       return;
@@ -274,7 +224,10 @@ export function ProfileCompletionGate() {
       username: normalizedUsername,
       displayName: normalizedName,
       country: canonicalCountry.name.tr,
+      countryCode: canonicalCountry.code,
       avatarUri: avatar,
+      avatarType: avatarRemoved ? "default" : selectedArtistId ? "artist" : avatar ? "uploaded" : "default",
+      avatarArtistId: selectedArtistId,
       removeAvatar: avatarRemoved,
       completeOnboarding: true
     });
@@ -288,7 +241,7 @@ export function ProfileCompletionGate() {
       <ThemePickerModal visible={eligible && themeStepReady && !themeSelected} required onThemeSelected={completeThemeStep} onClose={() => undefined} />
       <Modal visible={profileVisible} animationType="fade" presentationStyle="fullScreen" onRequestClose={() => undefined}>
         <KeyboardAvoidingView style={[styles.screen, { backgroundColor: colors.ink }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} scrollEnabled={!countryPickerOpen && !artistPickerOpen}>
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} scrollEnabled={!countryPickerOpen && !photoPickerView}>
             <View style={[styles.panel, { backgroundColor: colors.panel, borderColor: colors.line }]}>
               <View style={styles.headingRow}>
                 <View style={styles.headingText}>
@@ -312,17 +265,17 @@ export function ProfileCompletionGate() {
                 <Text style={[styles.photoTitle, { color: colors.ivory }]}>{copy.photo} · {copy.optional}</Text>
                 <Text style={[styles.photoHint, { color: colors.muted }]}>{uploadFormatHint[language]}</Text>
                 <View style={styles.photoActions}>
-                  <Pressable onPress={pickAvatar} disabled={saving} style={[styles.photoButton, { borderColor: colors.line, backgroundColor: colors.panelSoft }]}>
+                  <Pressable onPress={() => setPhotoPickerView("actions")} disabled={saving} style={[styles.photoButton, { borderColor: colors.line, backgroundColor: colors.panelSoft }]}>
                     <Ionicons name="images-outline" size={17} color={colors.gold} />
                     <Text style={[styles.photoButtonText, { color: colors.ivory }]}>{copy.photoAction}</Text>
                   </Pressable>
-                  <Pressable onPress={() => { setArtistQuery(""); setArtistPickerOpen(true); }} disabled={saving} style={[styles.artistButton, { borderColor: colors.gold }]}>
+                  <Pressable onPress={() => setPhotoPickerView("artists")} disabled={saving} style={[styles.artistButton, { borderColor: colors.gold }]}>
                     <Ionicons name="color-palette-outline" size={17} color={colors.gold} />
                     <Text style={[styles.artistButtonText, { color: colors.gold }]}>{copy.artistAction}</Text>
                   </Pressable>
                 </View>
                 {avatar ? (
-                  <Pressable onPress={removeAvatar} disabled={saving} style={styles.removePhotoButton}>
+                  <Pressable onPress={() => setPhotoPickerView("actions")} disabled={saving} style={styles.removePhotoButton}>
                     <Ionicons name="trash-outline" size={15} color="#e38b73" />
                     <Text style={styles.removePhotoText}>{copy.removePhoto}</Text>
                   </Pressable>
@@ -333,10 +286,10 @@ export function ProfileCompletionGate() {
               <ProfileField label={`${copy.name} · ${copy.required}`} value={displayName} onChangeText={setDisplayName} maxLength={DISPLAY_NAME_MAX_LENGTH} autoCapitalize="words" colors={colors} />
               <View style={fieldStyles.field}>
                 <Text style={[fieldStyles.fieldLabel, { color: colors.muted }]}>{copy.country} · {copy.required}</Text>
-                <Pressable onPress={() => { setCountryQuery(""); setCountryPickerOpen(true); }} disabled={saving} style={[styles.countrySelect, { borderColor: colors.line, backgroundColor: colors.panelSoft }]}>
+                <Pressable onPress={() => setCountryPickerOpen(true)} disabled={saving} style={[styles.countrySelect, { borderColor: colors.line, backgroundColor: colors.panelSoft }]}>
                   <View style={styles.countryValue}>
                     <Ionicons name="earth-outline" size={18} color={colors.gold} />
-                    <Text style={[styles.countryText, { color: selectedCountry ? colors.ivory : colors.muted }]} numberOfLines={1}>
+                    <Text style={[styles.countryText, { color: selectedCountry ? colors.ivory : colors.muted }]}>
                       {selectedCountry?.name[language] ?? copy.countryPlaceholder}
                     </Text>
                   </View>
@@ -351,84 +304,24 @@ export function ProfileCompletionGate() {
               </Pressable>
             </View>
           </ScrollView>
-          <PickerOverlay
+          <CountryPicker
             visible={countryPickerOpen}
-            title={copy.country}
-            query={countryQuery}
-            searchPlaceholder={copy.searchCountry}
-            onQueryChange={setCountryQuery}
+            selectedCode={countryCode}
             onClose={() => setCountryPickerOpen(false)}
-            colors={colors}
-          >
-            <FlatList
-              data={filteredCountries}
-              keyExtractor={(item) => item.id}
-              keyboardShouldPersistTaps="handled"
-              initialNumToRender={12}
-              maxToRenderPerBatch={12}
-              windowSize={7}
-              removeClippedSubviews={Platform.OS === "android"}
-              ListEmptyComponent={<Text style={[styles.emptyPickerText, { color: colors.muted }]}>{copy.noResults}</Text>}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => {
-                    setCountry(item.name.tr);
-                    setCountryPickerOpen(false);
-                    setCountryQuery("");
-                    setError("");
-                  }}
-                  style={[styles.countryOption, { borderColor: colors.line }, item.id === selectedCountry?.id && { backgroundColor: colors.panelSoft }]}
-                >
-                  <Text style={styles.countryFlag}>{flagFromCode(item.code)}</Text>
-                  <View style={styles.countryOptionCopy}>
-                    <Text style={[styles.countryOptionText, { color: colors.ivory }]}>{item.name[language]}</Text>
-                    <Text style={[styles.countryOptionCode, { color: colors.muted }]}>{item.code}</Text>
-                  </View>
-                  {item.id === selectedCountry?.id ? <Ionicons name="checkmark-circle" size={20} color={colors.gold} /> : null}
-                </Pressable>
-              )}
-            />
-          </PickerOverlay>
+            onSelect={(country) => {
+              setCountryCode(country.code);
+              setError("");
+            }}
+          />
 
-          <PickerOverlay
-            visible={artistPickerOpen}
-            title={copy.artistTitle}
-            subtitle={copy.artistHint}
-            query={artistQuery}
-            searchPlaceholder={copy.searchArtist}
-            onQueryChange={setArtistQuery}
-            onClose={() => setArtistPickerOpen(false)}
-            colors={colors}
-          >
-            <FlatList
-              key={`artist-grid-${artistColumns}`}
-              data={filteredArtists}
-              numColumns={artistColumns}
-              keyExtractor={(item) => item.id}
-              keyboardShouldPersistTaps="handled"
-              initialNumToRender={artistColumns * 3}
-              maxToRenderPerBatch={artistColumns * 3}
-              windowSize={5}
-              removeClippedSubviews={Platform.OS === "android"}
-              columnWrapperStyle={styles.artistRow}
-              contentContainerStyle={styles.artistList}
-              ListEmptyComponent={artistsLoading
-                ? <ActivityIndicator color={colors.gold} style={styles.emptyPickerIndicator} />
-                : artistsError && !normalizedArtistQuery
-                  ? <View style={styles.artistError}><Text style={[styles.emptyPickerText, { color: colors.muted }]}>{copy.artistsUnavailable}</Text><Pressable onPress={retryArtists} style={[styles.retryButton, { borderColor: colors.gold }]}><Text style={[styles.retryText, { color: colors.gold }]}>{copy.retry}</Text></Pressable></View>
-                  : <Text style={[styles.emptyPickerText, { color: colors.muted }]}>{copy.noResults}</Text>}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => chooseArtist(item.id)}
-                  style={[styles.artistOption, { width: artistCellWidth, borderColor: selectedArtistId === item.id ? colors.gold : colors.line, backgroundColor: colors.panelSoft }]}
-                >
-                  <Image source={imageSource(item.image, "avatar")} style={styles.artistImage} contentFit="cover" contentPosition="center" cachePolicy="memory-disk" allowDownscaling recyclingKey={`${item.id}:onboarding-avatar`} />
-                  <Text style={[styles.artistName, { color: colors.ivory }]} numberOfLines={2}>{item.name[language]}</Text>
-                  {selectedArtistId === item.id ? <View style={[styles.artistCheck, { backgroundColor: colors.gold }]}><Ionicons name="checkmark" size={13} color={colors.ink} /></View> : null}
-                </Pressable>
-              )}
-            />
-          </PickerOverlay>
+          <ProfilePhotoPicker
+            visible={Boolean(photoPickerView)}
+            currentAvatar={avatar}
+            currentArtistId={selectedArtistId}
+            initialView={photoPickerView ?? "actions"}
+            onClose={() => setPhotoPickerView(null)}
+            onSelect={selectProfilePhoto}
+          />
         </KeyboardAvoidingView>
       </Modal>
     </>
@@ -450,57 +343,6 @@ function ProfileField({ label, colors, ...inputProps }: {
       <TextInput {...inputProps} placeholderTextColor={colors.muted} style={[fieldStyles.input, { color: colors.ivory, borderColor: colors.line, backgroundColor: colors.panelSoft }]} />
     </View>
   );
-}
-
-function PickerOverlay({ visible, title, subtitle, query, searchPlaceholder, onQueryChange, onClose, colors, children }: {
-  visible: boolean;
-  title: string;
-  subtitle?: string;
-  query: string;
-  searchPlaceholder: string;
-  onQueryChange: (value: string) => void;
-  onClose: () => void;
-  colors: ReturnType<typeof getThemeColors>;
-  children: ReactNode;
-}) {
-  const styles = useMemo(() => createStyles(), []);
-  if (!visible) return null;
-  return (
-    <View style={styles.pickerBackdrop}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel={title} />
-      <View style={[styles.pickerPanel, { backgroundColor: colors.panel, borderColor: colors.line }]}>
-        <View style={styles.pickerHeader}>
-          <View style={styles.pickerHeadingText}>
-            <Text style={[styles.pickerTitle, { color: colors.ivory }]}>{title}</Text>
-            {subtitle ? <Text style={[styles.pickerSubtitle, { color: colors.muted }]}>{subtitle}</Text> : null}
-          </View>
-          <Pressable onPress={onClose} style={[styles.closeButton, { backgroundColor: colors.panelSoft, borderColor: colors.line }]}>
-            <Ionicons name="close" size={21} color={colors.ivory} />
-          </Pressable>
-        </View>
-        <View style={[styles.pickerSearch, { backgroundColor: colors.panelSoft, borderColor: colors.line }]}>
-          <Ionicons name="search" size={18} color={colors.gold} />
-          <TextInput
-            value={query}
-            onChangeText={onQueryChange}
-            placeholder={searchPlaceholder}
-            placeholderTextColor={colors.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={[styles.pickerSearchInput, { color: colors.ivory }]}
-          />
-          {query ? <Pressable onPress={() => onQueryChange("")} hitSlop={8}><Ionicons name="close-circle" size={18} color={colors.muted} /></Pressable> : null}
-        </View>
-        <View style={styles.pickerList}>{children}</View>
-      </View>
-    </View>
-  );
-}
-
-function flagFromCode(code: string) {
-  const normalized = code.trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(normalized)) return "🌍";
-  return String.fromCodePoint(...[...normalized].map((character) => 127397 + character.charCodeAt(0)));
 }
 
 const fieldStyles = StyleSheet.create({

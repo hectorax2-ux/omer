@@ -24,7 +24,7 @@ export type SupportTicket = {
   subject: string;
   topic: string;
   firstName: string;
-  lastName: string;
+  lastName?: string;
   email: string;
   status: SupportStatus;
   createdAt: string;
@@ -37,7 +37,7 @@ type NewTicketInput = {
   subject: string;
   topic: string;
   firstName: string;
-  lastName: string;
+  lastName?: string;
   email: string;
 };
 
@@ -114,7 +114,7 @@ export function SupportProvider({ children }: PropsWithChildren) {
             subcategory: input.subcategory,
             subject: input.subject,
             email: input.email.trim(),
-            userDisplayName: `${input.firstName.trim()} ${input.lastName.trim()}`.trim(),
+            userDisplayName: [input.firstName.trim(), input.lastName?.trim()].filter(Boolean).join(" "),
             message: input.topic
           });
           return { ok: true };
@@ -180,7 +180,7 @@ function mapSupportTicketDocument(ticket: SupportTicketDocument): SupportTicket 
     subject: ticket.subject,
     topic: firstUserMessage?.message ?? "",
     firstName: nameParts[0] ?? "",
-    lastName: nameParts.slice(1).join(" "),
+    lastName: nameParts.slice(1).join(" ") || undefined,
     email: ticket.email,
     status: ticket.status === "resolved" ? "closed" : "open",
     createdAt: timestampLabel(ticket.createdAt),

@@ -58,7 +58,6 @@ export default function TabsLayout() {
         name="gallery"
         listeners={({ navigation }) => ({ tabPress: () => navigation.isFocused() && emitScrollToTop("gallery") })}
         options={{
-          lazy: false,
           title: copy.gallery[language],
           tabBarLabel: copy.gallery[language],
           tabBarIcon: ({ color, focused }) => <TabIcon name="easel" color={color} focused={focused} />
@@ -72,7 +71,6 @@ export default function TabsLayout() {
         name="feed"
         listeners={({ navigation }) => ({ tabPress: () => navigation.isFocused() && emitScrollToTop("feed") })}
         options={{
-          lazy: false,
           title: uiCopy.feedDiscover[language],
           tabBarLabel: uiCopy.feedDiscover[language],
           tabBarIcon: ({ color, focused }) => <TabIcon name="newspaper" color={color} focused={focused} />
@@ -100,7 +98,6 @@ export default function TabsLayout() {
         name="messages"
         listeners={({ navigation }) => ({ tabPress: () => navigation.isFocused() && emitScrollToTop("messages") })}
         options={{
-          lazy: false,
           title: language === "tr" ? "Mesajlar" : language === "ru" ? "Сообщения" : language === "uz" ? "Xabarlar" : "Messages",
           tabBarLabel: language === "tr" ? "Mesajlar" : "Messages",
           tabBarIcon: ({ color, focused }) => <MessagesTabIcon name="mail" color={color} focused={focused} />
@@ -119,7 +116,6 @@ export default function TabsLayout() {
         name="account"
         listeners={({ navigation }) => ({ tabPress: () => navigation.isFocused() && emitScrollToTop("account") })}
         options={{
-          lazy: false,
           title: copy.account[language],
           tabBarLabel: copy.account[language],
           tabBarIcon: ({ color, focused }) => <TabIcon name="person-circle" color={color} focused={focused} />

@@ -1,13 +1,16 @@
 // Added Apple Sign In
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { firebaseAuth } from "@/src/services/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { AppChrome } from "@/components/app-chrome";
+import { CountryPicker } from "@/components/country-picker";
 import { TabScreenMountGate } from "@/components/tab-screen-mount-gate";
+import { ScreenDataState } from "@/components/screen-data-state";
 import { ProfileAvatar } from "@/components/profile-avatar";
+import { ProfilePhotoPicker, type ProfilePhotoSelection } from "@/components/profile-photo-picker";
 import { UserNameWithCountry } from "@/components/user-name-with-country";
 import { ArtworkGridCommentBadge } from "@/components/artwork-grid-comment-badge";
 import { ImagePreviewModal } from "@/components/image-preview-modal";
@@ -31,7 +34,7 @@ import {
 import { BadgeId, getBadgeItem, getRoleIcon, getRoleLabel, UserRoleId } from "@/constants/profile-taxonomy";
 import { getThemeColors } from "@/constants/theme";
 import { radii, v2Colors } from "@/constants/design";
-import { copy, countryCommunities, uiCopy } from "@/data/content";
+import { copy, uiCopy } from "@/data/content";
 import { useAccount } from "@/hooks/use-account";
 import { useGoogleSignIn, isGoogleSignInConfigured, getGoogleSignInConfigError } from "@/hooks/use-google-sign-in";
 import { useArtSystems } from "@/hooks/use-art-systems";
@@ -39,6 +42,8 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useCommunityArt } from "@/hooks/use-community-art";
 import { useDiscoveryPosts } from "@/hooks/use-discovery-posts";
 import { useLanguage } from "@/hooks/use-language";
+import { useArtNews } from "@/hooks/use-art-news";
+import { useEngagement } from "@/hooks/use-engagement";
 import { useLegal } from "@/hooks/use-legal";
 import { useSocial } from "@/hooks/use-social";
 import { useCountryLookup } from "@/providers/country-lookup-provider";
@@ -48,10 +53,17 @@ import { compressArtworkImage } from "@/utils/image-compression";
 import { uploadFormatHint, validatePickedImageAsset } from "@/utils/image-upload-validation";
 import { imageSource } from "@/utils/image-source";
 import { buildLimitStatusText, buildRateLimitMessage, throttleAction, withinBurstLimit } from "@/utils/safety";
-import { useRouter } from "expo-router";
-import { useIsFocused } from "@react-navigation/native";
-import { resolveCountryCode, resolveCountryId } from "@/utils/country-utils";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { TabActions, useIsFocused, useNavigation } from "@react-navigation/native";
+import { getLocalizedCountryName, resolveCountryCode, resolveCountryId } from "@/utils/country-utils";
 import { isAppleCancelError, requestAppleSignInCredential } from "@/utils/apple-auth";
+import { NewsCard } from "@/components/news-card";
+import { createAuthActionLock, createAuthNavigationIntent } from "@/utils/auth-lifecycle";
+import { getAuthErrorMessage } from "@/utils/auth-error-message";
+import { AuthField } from "@/components/auth-field";
+import { membershipCopy } from "@/components/membership-intro";
+import { AuthPortal } from "@/components/auth-portal";
+import { logAuthStage } from "@/utils/auth-diagnostics";
 
 const BIO_MAX_LENGTH = 150;
 const SOCIAL_LINK_MAX_LENGTH = 50;
@@ -66,6 +78,8 @@ export default function AccountScreen() {
 
 function AccountContent() {
   const isFocused = useIsFocused();
+  const navigation = useNavigation();
+  const authNavigation = useRef(createAuthNavigationIntent());
   const { language } = useLanguage();
   const router = useRouter();
   const styles = useAccountStyles();
@@ -76,10 +90,13 @@ function AccountContent() {
   const { items, loading: communityLoading, addProfileArtwork, deleteSubmittedArtwork, getArtworkLimitStatus, submitArtwork, commentsByArtwork } = useCommunityArt();
   const { personalMuseums } = useArtSystems();
   const { posts, addPost, deletePost, favoriteIds, getPostLimitStatus, likedIds, toggleFavorite, toggleHidden, toggleLike, updatePost } = useDiscoveryPosts();
+  const { allItems: newsItems } = useArtNews();
+  const { favoriteNewsIds } = useEngagement();
   const { getFollowersFor, getFollowingFor, unfollowUser, patchSuggestedUser, watchFollowGraph } = useSocial();
   const { upsertIdentity } = useCountryLookup();
   const {
     account,
+    authLoading,
     profileHydrated,
     profileHydrationError,
     isAuthenticated,
@@ -98,13 +115,28 @@ function AccountContent() {
     logout,
     retryProfileHydration
   } = useAccount();
+  useEffect(() => {
+    if (!authNavigation.current.consume(isAuthenticated, isFocused)) return;
+    // Replacing '/' may retain the selected tab in the already-mounted tabs
+    // group. Address the existing Home tab explicitly, as bottom navigation does.
+    logAuthStage("navigation-dispatch", "session", "start");
+    navigation.dispatch(TabActions.jumpTo("index"));
+  }, [isAuthenticated, isFocused, navigation]);
+  useEffect(() => {
+    const intent = authNavigation.current;
+    return () => intent.cancel();
+  }, []);
   const [username, setUsername] = useState(account.username);
   const [displayName, setDisplayName] = useState(account.displayName);
   const [bio, setBio] = useState(account.bio);
   const [password, setPassword] = useState(account.password);
   const [email, setEmail] = useState(account.email);
   const [avatar, setAvatar] = useState(account.avatar);
+  const [avatarType, setAvatarType] = useState(account.avatarType);
+  const [avatarArtistId, setAvatarArtistId] = useState(account.avatarArtistId);
+  const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [country, setCountry] = useState(account.country);
+  const [countryCode, setCountryCode] = useState(account.countryCode ?? resolveCountryCode(account.country) ?? "");
   const [city, setCity] = useState(account.city);
   const [interests, setInterests] = useState(account.interests.join(", "));
   const [instagram, setInstagram] = useState(account.socialLinks.instagram);
@@ -162,7 +194,10 @@ function AccountContent() {
     setPassword(account.password);
     setEmail(pendingVerificationEmail ?? account.email);
     setAvatar(account.avatar);
+    setAvatarType(account.avatarType);
+    setAvatarArtistId(account.avatarArtistId);
     setCountry(account.country);
+    setCountryCode(account.countryCode ?? resolveCountryCode(account.country) ?? "");
     setCity(account.city);
     setInterests(account.interests.join(", "));
     setInstagram(account.socialLinks.instagram);
@@ -175,7 +210,7 @@ function AccountContent() {
 
   useEffect(() => {
     resetDraftFromAccount();
-  }, [account.username, account.displayName, account.bio, account.password, account.email, account.avatar, account.country, account.city, account.interests, account.socialLinks, account.isDiscoverableByCountry, pendingVerificationEmail]);
+  }, [account.username, account.displayName, account.bio, account.password, account.email, account.avatar, account.avatarType, account.avatarArtistId, account.country, account.countryCode, account.city, account.interests, account.socialLinks, account.isDiscoverableByCountry, pendingVerificationEmail]);
 
   useEffect(() => {
     if (!postModalOpen && !profileUploadOpen) return;
@@ -228,7 +263,10 @@ function AccountContent() {
       displayName: normalizeDisplayName(displayName),
       bio: bio.trim().slice(0, BIO_MAX_LENGTH),
       avatarUri: avatar,
+      avatarType,
+      avatarArtistId,
       country,
+      countryCode,
       city: city.trim().slice(0, CITY_MAX_LENGTH),
       interests: interests.split(",").map((item) => item.trim()).filter(Boolean),
       socialLinks: {
@@ -248,12 +286,13 @@ function AccountContent() {
     }
 
     if (account.uid) {
-      const savedCountryCode = resolveCountryCode(country) ?? undefined;
+      const savedCountryCode = countryCode || resolveCountryCode(country) || undefined;
       patchSuggestedUser(account.uid, {
         username: normalizeUsername(username),
         name: normalizeDisplayName(displayName),
+        image: result.avatarUrl ?? avatar ?? "",
         country,
-        countryId: resolveCountryId(country),
+        countryId: resolveCountryId(savedCountryCode || country),
         countryCode: savedCountryCode
       });
       upsertIdentity({
@@ -261,7 +300,7 @@ function AccountContent() {
         username: normalizeUsername(username),
         name: normalizeDisplayName(displayName),
         country,
-        countryId: resolveCountryId(country),
+        countryId: resolveCountryId(savedCountryCode || country),
         countryCode: savedCountryCode
       });
     }
@@ -312,31 +351,39 @@ function AccountContent() {
     }
   }
 
-  async function pickAvatar() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setAccountError(language === "tr" ? "Profil fotoğrafı için galeri izni gerekli. Ayarlardan izin verebilirsiniz." : language === "ru" ? "Для фото профиля нужен доступ к галерее." : language === "uz" ? "Profil rasmi uchun galereyaga ruxsat kerak." : "Gallery permission is required for profile photos.");
-      return;
+  async function selectProfilePhoto(selection: ProfilePhotoSelection) {
+    if (!canUseMemberFeatures) {
+      return { ok: false, message: language === "tr" ? "Profil fotoğrafını değiştirmek için e-posta adresinizi doğrulayın." : language === "ru" ? "Подтвердите электронную почту, чтобы изменить фото профиля." : language === "uz" ? "Profil rasmini o‘zgartirish uchun e-pochtangizni tasdiqlang." : "Verify your email to change your profile photo." };
     }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      allowsEditing: true,
-      aspect: [1, 1]
+    const previousAvatar = avatar;
+    const previousAvatarType = avatarType;
+    const previousArtistId = avatarArtistId;
+    const optimisticAvatar = selection.type === "default" ? undefined : selection.uri;
+    setAvatar(optimisticAvatar);
+    setAvatarType(selection.type);
+    setAvatarArtistId(selection.artistId);
+    updateAccount({ avatar: optimisticAvatar, avatarType: selection.type, avatarArtistId: selection.artistId });
+    setAccountError("");
+    setSaved(false);
+    const result = await saveAccountProfile({
+      avatarUri: selection.uri,
+      avatarType: selection.type,
+      avatarArtistId: selection.artistId,
+      removeAvatar: selection.type === "default"
     });
-
-    if (!result.canceled) {
-      const asset = result.assets[0];
-      const validation = validatePickedImageAsset(asset, language);
-      if (!validation.ok) {
-        setAccountError(validation.message);
-        return;
-      }
-      setAvatar(asset.uri);
-      setAccountError("");
-      setSaved(false);
+    if (!result.ok) {
+      setAvatar(previousAvatar);
+      setAvatarType(previousAvatarType);
+      setAvatarArtistId(previousArtistId);
+      updateAccount({ avatar: previousAvatar, avatarType: previousAvatarType, avatarArtistId: previousArtistId });
+      setAccountError(result.message);
+      return result;
     }
+    setAvatar(result.avatarUrl || undefined);
+    updateAccount({ avatar: result.avatarUrl || undefined, avatarType: selection.type, avatarArtistId: selection.artistId });
+    if (account.uid) patchSuggestedUser(account.uid, { image: result.avatarUrl ?? "" });
+    setSaved(true);
+    return result;
   }
 
   async function pickProfileImage() {
@@ -408,9 +455,14 @@ function AccountContent() {
     };
   }
 
+  if (authLoading) {
+    return <AppChrome title={copy.account[language]} showTopAd={false} showFloatingShortcuts={false}><ScreenDataState status="loading" /></AppChrome>;
+  }
   if (!isAuthenticated) {
     return (
       <AuthScreen
+        beginAuthNavigation={() => authNavigation.current.begin()}
+        cancelAuthNavigation={(request) => authNavigation.current.cancel(request)}
         language={language}
         pendingVerificationEmail={pendingVerificationEmail}
         login={login}
@@ -426,15 +478,7 @@ function AccountContent() {
   if (profileHydrationError && !profileHydrated) {
     return (
       <AppChrome title={copy.account[language]} eyebrow={copy.profileInfo[language]} showTopAd={false} showFloatingShortcuts={false}>
-        <View style={styles.profileHydrationError}>
-          <Ionicons name="cloud-offline-outline" size={28} color={colors.gold} />
-          <Text style={styles.profileHydrationErrorText}>
-            {language === "tr" ? "Profil bilgileri şu anda yüklenemedi." : language === "ru" ? "Не удалось загрузить данные профиля." : language === "uz" ? "Profil ma'lumotlarini hozir yuklab bo'lmadi." : "Profile data could not be loaded."}
-          </Text>
-          <Pressable onPress={retryProfileHydration} style={styles.profileHydrationRetry}>
-            <Text style={styles.profileHydrationRetryText}>{language === "tr" ? "Tekrar dene" : language === "ru" ? "Повторить" : language === "uz" ? "Qayta urinish" : "Retry"}</Text>
-          </Pressable>
-        </View>
+        <ScreenDataState status="error" onRetry={retryProfileHydration} />
       </AppChrome>
     );
   }
@@ -442,7 +486,7 @@ function AccountContent() {
   if (!profileHydrated || !account.uid) {
     return (
       <AppChrome title={copy.account[language]} eyebrow={copy.profileInfo[language]} showTopAd={false} showFloatingShortcuts={false}>
-        <AccountProfileSkeleton styles={styles} />
+        <ScreenDataState status="loading" />
       </AppChrome>
     );
   }
@@ -451,10 +495,11 @@ function AccountContent() {
   const selectedArtwork = selectedArtworkId ? ownArtworks.find((item) => item.id === selectedArtworkId) ?? null : null;
   const ownPosts = posts.filter((post) => isAuthoredByPost(post, account));
   const favoritePosts = posts.filter((post) => favoriteIds.includes(post.id) && !post.hidden);
+  const favoriteNews = newsItems.filter((item) => favoriteNewsIds.includes(item.id));
   const followers = account.uid ? getFollowersFor(account.uid) : [];
   const followingProfiles = account.uid ? getFollowingFor(account.uid) : [];
   const accountMuseum = personalMuseums.find((museum) => isOwnedMuseum(museum, account) && museum.active);
-  const countryDisplay = countryCommunities.find((item) => item.name.tr === country)?.name[language] ?? country;
+  const countryDisplay = getLocalizedCountryName(countryCode || country, language);
   const badges = getProfileBadges(account.role, account.totalScore, ownArtworks, language, account.isPremium, account.badges.filter((badge) => badge !== "premium"));
 
   function openProfileArtworkPreview(id: string) {
@@ -657,7 +702,7 @@ function AccountContent() {
             <View style={styles.socialUsernameRow}>
               <UserNameWithCountry
                 name={`@${account.username}`}
-                countryCode={resolveCountryCode(account.country)}
+                countryCode={account.countryCode ?? resolveCountryCode(account.country)}
                 nameStyle={styles.socialUsername}
                 style={styles.socialUsernameNameRow}
               />
@@ -696,7 +741,7 @@ function AccountContent() {
           <View style={styles.socialBioBlock}>
             <UserNameWithCountry
               name={account.displayName}
-              countryCode={resolveCountryCode(account.country)}
+              countryCode={account.countryCode ?? resolveCountryCode(account.country)}
               nameStyle={styles.socialDisplayName}
               style={styles.socialDisplayNameRow}
               numberOfLines={2}
@@ -704,7 +749,7 @@ function AccountContent() {
             <BadgeRow badges={badges} styles={styles} colors={colors} />
             <Text style={styles.socialBio}>{account.bio || (language === "tr" ? "Henüz biyografi eklenmedi." : language === "ru" ? "Биография пока не добавлена." : language === "uz" ? "Hali biografiya qo'shilmagan." : "No biography yet.")}</Text>
             <View style={styles.compactProfileMetaRow}>
-              {account.country ? <Text style={styles.profilePill} numberOfLines={1}>{account.city ? `${account.city}, ` : ""}{countryDisplay}</Text> : null}
+              {countryDisplay ? <Text style={styles.profilePill} numberOfLines={1}>{account.city ? `${account.city}, ` : ""}{countryDisplay}</Text> : null}
               <SocialIconRow links={account.socialLinks} styles={styles} colors={colors} onPress={() => setSocialLinksOpen(true)} language={language} />
             </View>
           </View>
@@ -767,7 +812,7 @@ function AccountContent() {
             <Ionicons name="document-text-outline" size={25} color={colors.gold} />
             <Text style={styles.profileEmptyText}>{language === "tr" ? "Henüz yazı paylaşmadın." : language === "ru" ? "Пока нет записей." : language === "uz" ? "Hali yozuv yo'q." : "No posts yet."}</Text>
           </View>
-        ) : favoritePosts.length ? (
+        ) : favoritePosts.length || favoriteNews.length ? (
           <View style={postStyles.feedList}>
             {favoritePosts.map((post) => (
               <DiscoveryPostCard
@@ -783,11 +828,12 @@ function AccountContent() {
                 colors={colors}
               />
             ))}
+            {favoriteNews.map((item) => <NewsCard key={item.id} item={item} variant="compact" />)}
           </View>
         ) : (
           <View style={styles.profileEmpty}>
             <Ionicons name="bookmark-outline" size={25} color={colors.gold} />
-            <Text style={styles.profileEmptyText}>{language === "tr" ? "Henüz favori yazı eklemedin." : language === "ru" ? "Пока нет избранных записей." : language === "uz" ? "Hali sevimli yozuv yo'q." : "No favorite posts yet."}</Text>
+            <Text style={styles.profileEmptyText}>{language === "tr" ? "Henüz favori yazı veya haber eklemedin." : language === "ru" ? "Пока нет избранных записей или новостей." : language === "uz" ? "Hali sevimli yozuv yoki yangilik yo'q." : "No favorite posts or news yet."}</Text>
           </View>
         )}
 
@@ -803,9 +849,9 @@ function AccountContent() {
           <View style={styles.summary}>
             <View style={styles.summaryTop}>
               <View style={styles.avatarButtonWrap}>
-                <Pressable onPress={pickAvatar} style={styles.avatarButton}>
+                <Pressable onPress={() => setPhotoPickerOpen(true)} style={styles.avatarButton}>
                   {avatar ? (
-                    <Image source={imageSource(avatar, "thumbnail")} style={styles.avatarImage} contentFit="cover" cachePolicy="memory-disk" allowDownscaling />
+                    <Image source={imageSource(avatar, "avatar")} style={styles.avatarImage} contentFit="cover" cachePolicy="memory-disk" allowDownscaling />
                   ) : (
                     <Ionicons name="person" size={28} color={colors.gold} />
                   )}
@@ -847,17 +893,15 @@ function AccountContent() {
               <CountrySelect label={uiCopy.country[language]} value={countryDisplay} onPress={() => setCountryPickerOpen(true)} />
               <Field label={uiCopy.city[language]} value={city} onChangeText={(value) => editField(setCity)(value.slice(0, CITY_MAX_LENGTH))} maxLength={CITY_MAX_LENGTH} />
             </View>
-            <CountryPickerModal
+            <CountryPicker
               visible={countryPickerOpen}
-              language={language}
+              selectedCode={countryCode}
               onClose={() => setCountryPickerOpen(false)}
-              onSelect={(value) => {
-                setCountry(value);
-                setCountryPickerOpen(false);
+              onSelect={(selectedCountry) => {
+                setCountry(selectedCountry.name.tr);
+                setCountryCode(selectedCountry.code);
                 setSaved(false);
               }}
-              styles={styles}
-              colors={colors}
             />
             <Field label={uiCopy.interests[language]} value={interests} onChangeText={editField(setInterests)} />
             <Field label={copy.password[language]} value={password} onChangeText={editField(setPassword)} secureTextEntry />
@@ -914,6 +958,14 @@ function AccountContent() {
             />
           </View>
 
+          <ProfilePhotoPicker
+            visible={photoPickerOpen}
+            currentAvatar={avatar}
+            currentArtistId={avatarArtistId}
+            onClose={() => setPhotoPickerOpen(false)}
+            onSelect={selectProfilePhoto}
+          />
+
           <Pressable onPress={logout} style={styles.logoutButton}>
             <Ionicons name="log-out-outline" size={20} color={colors.ivory} />
             <Text style={styles.logoutText}>{copy.logout[language]}</Text>
@@ -925,6 +977,8 @@ function AccountContent() {
 }
 
 type AuthScreenProps = {
+  beginAuthNavigation: () => number;
+  cancelAuthNavigation: (request: number) => void;
   language: "tr" | "en" | "ru" | "uz";
   pendingVerificationEmail?: string;
   login: (email: string, password: string) => Promise<{ ok: boolean; message: string; requiresVerification?: boolean }>;
@@ -1074,7 +1128,6 @@ function AuthGoogleSignInButton({
   loading,
   runAuthAction,
   signInWithGoogle,
-  onSuccess,
   setMessage,
   styles,
   colors,
@@ -1083,9 +1136,8 @@ function AuthGoogleSignInButton({
   legalAccepted
 }: {
   loading: boolean;
-  runAuthAction: (action: () => Promise<{ ok: boolean; message: string; requiresVerification?: boolean }>, onSuccess?: () => void) => Promise<void>;
+  runAuthAction: (action: () => Promise<{ ok: boolean; message: string; requiresVerification?: boolean }>, navigate?: boolean) => Promise<void>;
   signInWithGoogle: AuthScreenProps["signInWithGoogle"];
-  onSuccess: () => void;
   setMessage: (value: string) => void;
   styles: ReturnType<typeof createStyles>;
   colors: ReturnType<typeof getThemeColors>;
@@ -1099,94 +1151,83 @@ function AuthGoogleSignInButton({
     if (!requireLegalAcceptance()) return;
 
     if (Platform.OS === "web") {
-      await runAuthAction(() => signInWithGoogle(), onSuccess);
+      await runAuthAction(() => signInWithGoogle());
       return;
     }
 
     if (!googleSignIn.ready) {
-      setMessage(googleSignIn.configError ?? "Google girişi yapılandırılmamış.");
+      setMessage(getAuthErrorMessage({ code: "auth/operation-not-allowed" }, language, true));
       return;
     }
 
-    const googleResult = await googleSignIn.signIn();
-    if (googleResult.cancelled) {
-      return;
-    }
-    if (!googleResult.idToken) {
-      setMessage(googleResult.error ?? "Google ile giriş başarısız.");
-      return;
-    }
-
-    await runAuthAction(() => signInWithGoogle(googleResult.idToken), onSuccess);
+    await runAuthAction(async () => {
+      const googleResult = await googleSignIn.signIn();
+      if (googleResult.cancelled) return { ok: false, message: "" };
+      if (!googleResult.idToken) return { ok: false, message: getAuthErrorMessage({ code: googleResult.code }, language, true) };
+      return signInWithGoogle(googleResult.idToken);
+    });
   }
 
   return (
-    <Pressable disabled={loading || !googleSignIn.ready} onPress={handlePress} style={[styles.googleButton, !legalAccepted && styles.buttonDisabled]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={uiCopy.googleContinue[language]} disabled={loading || !googleSignIn.ready} onPress={handlePress} style={[styles.googleButton, !legalAccepted && styles.buttonDisabled]}>
       <Ionicons name="logo-google" size={20} color={colors.ivory} />
-      <Text style={styles.googleText}>{uiCopy.googleContinue[language]}</Text>
+      <Text style={styles.googleText}>Google</Text>
     </Pressable>
   );
 }
 
-function AccountProfileSkeleton({ styles }: { styles: ReturnType<typeof createStyles> }) {
-  return (
-    <View style={styles.profileHydrationStack} accessibilityLabel="Profile loading">
-      <View style={styles.summary}>
-        <View style={styles.summaryTop}>
-          <View style={[styles.profileSkeletonBlock, styles.profileSkeletonAvatar]} />
-          <View style={styles.summaryText}>
-            <View style={[styles.profileSkeletonBlock, styles.profileSkeletonName]} />
-            <View style={[styles.profileSkeletonBlock, styles.profileSkeletonMeta]} />
-          </View>
-        </View>
-        <View style={[styles.profileSkeletonBlock, styles.profileSkeletonBio]} />
-        <View style={[styles.profileSkeletonBlock, styles.profileSkeletonBioShort]} />
-      </View>
-      <View style={styles.panel}>
-        <View style={styles.profileSkeletonStats}>
-          {[0, 1, 2].map((item) => <View key={item} style={[styles.profileSkeletonBlock, styles.profileSkeletonStat]} />)}
-        </View>
-        <View style={[styles.profileSkeletonBlock, styles.profileSkeletonBadge]} />
-        <View style={[styles.profileSkeletonBlock, styles.profileSkeletonAction]} />
-        <View style={[styles.profileSkeletonBlock, styles.profileSkeletonContent]} />
-      </View>
-    </View>
-  );
-}
-
-function AuthScreen({ language, pendingVerificationEmail, login, register, verifyEmailCode, forgotPassword, signInWithGoogle, signInWithApple }: AuthScreenProps) {
+function AuthScreen({ language, pendingVerificationEmail, login, register, verifyEmailCode, forgotPassword, signInWithGoogle, signInWithApple, beginAuthNavigation, cancelAuthNavigation }: AuthScreenProps) {
   const router = useRouter();
+  const navigation = useNavigation();
+  const params = useLocalSearchParams<{ authMode?: string }>();
   const styles = useAccountStyles();
   const { theme } = useAppTheme();
   const colors = getThemeColors(theme);
   const { acceptLegal } = useLegal();
   const googleConfigured = isGoogleSignInConfigured();
-  const googleConfigError = getGoogleSignInConfigError();
-  const [mode, setMode] = useState<"login" | "register" | "verify" | "forgot">("login");
+  const [mode, setMode] = useState<"login" | "register" | "verify" | "forgot">(params.authMode === "register" ? "register" : "login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [secure, setSecure] = useState(true);
   const [accepted, setAccepted] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageOk, setMessageOk] = useState(false);
   const [loading, setLoading] = useState(false);
   const [legalModal, setLegalModal] = useState<null | "terms" | "privacy">(null);
-
-  async function runAuthAction(action: () => Promise<{ ok: boolean; message: string; requiresVerification?: boolean }>, onSuccess?: () => void) {
-    setLoading(true);
-    setMessage("");
-    try {
-      const result = await action();
-      setMessage(result.message);
-      if (result.requiresVerification) {
-        setMode("verify");
-      }
-      if (result.ok) {
-        onSuccess?.();
-      }
-    } finally {
-      setLoading(false);
+  const actionLock = useRef(createAuthActionLock());
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => {
+    if (params.authMode === "login" || params.authMode === "register") {
+      setMode(params.authMode);
+      setMessage("");
     }
+  }, [params.authMode]);
+
+  async function runAuthAction(action: () => Promise<{ ok: boolean; message: string; requiresVerification?: boolean }>, navigate = true) {
+    await actionLock.current(async () => {
+      const navigationRequest = navigate ? beginAuthNavigation() : undefined;
+      setLoading(true);
+      setMessage("");
+      setMessageOk(false);
+      try {
+        const result = await action();
+        if (!result.ok && navigationRequest !== undefined) cancelAuthNavigation(navigationRequest);
+        if (!mounted.current) return;
+        setMessage(result.message);
+        setMessageOk(result.ok);
+      } catch (error) {
+        if (navigationRequest !== undefined) cancelAuthNavigation(navigationRequest);
+        logAuthStage("form-action", mode, "error", error);
+        if (mounted.current) setMessage(getAuthErrorMessage(error, language));
+      } finally {
+        if (mounted.current) setLoading(false);
+      }
+    });
   }
 
   function requireLegalAcceptance() {
@@ -1200,46 +1241,44 @@ function AuthScreen({ language, pendingVerificationEmail, login, register, verif
 
   function submitLogin() {
     if (!requireLegalAcceptance()) return;
-    if (!username.includes("@") || password.length < 6) {
-      setMessage("Lütfen e-posta adresinizi ve şifrenizi kontrol edin.");
+    if (!email.includes("@") || password.length < 6) {
+      setMessage(membershipCopy.checkFields[language]);
       return;
     }
 
-    runAuthAction(() => login(username, password), () => router.replace("/"));
+    runAuthAction(() => login(email, password));
   }
 
   function submitRegister() {
     if (!requireLegalAcceptance()) return;
     if (!username.trim() || password.length < 6 || !email.includes("@")) {
-      setMessage(language === "tr"
-        ? "Tüm alanları doldur, şifre en az 6 karakter olsun ve politikayı onayla."
-        : "Fill all fields, use at least 6 password characters, and accept the policy.");
+      setMessage(membershipCopy.checkFields[language]);
       return;
     }
 
     if (!isValidUsername(username)) {
-      setMessage(`Kullanıcı adı ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} karakter olmalı.`);
+      setMessage(membershipCopy.username[language]);
       return;
     }
 
-    runAuthAction(() => register({ username: normalizeUsername(username), password, email }), () => setMode("verify"));
+    runAuthAction(() => register({ username: normalizeUsername(username), password, email }));
   }
 
   function submitVerify() {
-    runAuthAction(() => verifyEmailCode(), () => router.replace("/"));
+    runAuthAction(() => verifyEmailCode());
   }
 
   function submitForgot() {
-    if (!username.includes("@")) {
-      setMessage("Lütfen kayıtlı e-posta adresinizi yazın.");
+    if (!email.includes("@")) {
+      setMessage(getAuthErrorMessage({ code: "auth/invalid-email" }, language));
       return;
     }
 
-    runAuthAction(() => forgotPassword(username));
+    runAuthAction(() => forgotPassword(email), false);
   }
 
   return (
-    <AppChrome title={copy.account[language]} eyebrow={uiCopy.secureAccess[language]} showTopAd={false} showFloatingShortcuts={false}>
+    <AppChrome title={copy.account[language]} eyebrow={uiCopy.secureAccess[language]} showTopAd={false} showFloatingShortcuts={false} keyboardAvoiding>
       <Modal visible={!!legalModal} transparent animationType="fade" onRequestClose={() => setLegalModal(null)}>
         <View style={styles.legalBackdrop}>
           <View style={styles.legalPanel}>
@@ -1275,21 +1314,13 @@ function AuthScreen({ language, pendingVerificationEmail, login, register, verif
           </View>
         </View>
       </Modal>
-      <View style={styles.authHero}>
-        <Ionicons name="shield-checkmark" size={24} color={colors.gold} />
-        <Text style={styles.authTitle}>
-          {uiCopy.artGoAccount[language]}
-        </Text>
-        <Text style={styles.authText}>
-          {uiCopy.guestAccessText[language]}
-        </Text>
-      </View>
-
+      <View testID="auth-content" style={styles.authContent}>
+      <AuthPortal />
       <View style={styles.authTabs}>
-        <Pressable onPress={() => { setMode("login"); setMessage(""); }} style={[styles.authTab, mode === "login" && styles.authTabActive]}>
+        <Pressable accessibilityRole="tab" accessibilityState={{ selected: mode === "login" }} disabled={loading} onPress={() => { setMode("login"); setMessage(""); }} style={[styles.authTab, mode === "login" && styles.authTabActive]}>
           <Text style={[styles.authTabText, mode === "login" && styles.authTabTextActive]}>{uiCopy.login[language]}</Text>
         </Pressable>
-        <Pressable onPress={() => { setMode("register"); setMessage(""); }} style={[styles.authTab, mode === "register" && styles.authTabActive]}>
+        <Pressable accessibilityRole="tab" accessibilityState={{ selected: mode === "register" }} disabled={loading} onPress={() => { setMode("register"); setMessage(""); }} style={[styles.authTab, mode === "register" && styles.authTabActive]}>
           <Text style={[styles.authTabText, mode === "register" && styles.authTabTextActive]}>{uiCopy.register[language]}</Text>
         </Pressable>
       </View>
@@ -1299,17 +1330,17 @@ function AuthScreen({ language, pendingVerificationEmail, login, register, verif
           <>
             <Text style={styles.authPanelTitle}>{uiCopy.emailVerification[language]}</Text>
             <Text style={styles.authNotice}>{pendingVerificationEmail}</Text>
-            <Text style={styles.authNotice}>E-posta kutunuzdaki doğrulama bağlantısına tıkladıktan sonra üyeliği tamamlayabilirsiniz.</Text>
-            <Pressable disabled={loading} onPress={submitVerify} style={[styles.primaryButton, loading && styles.buttonDisabled]}>
-              <Text style={styles.primaryButtonText}>{loading ? "Kontrol ediliyor..." : uiCopy.completeAccount[language]}</Text>
+            <Text style={styles.authNotice}>{membershipCopy.verifyHint[language]}</Text>
+            <Pressable accessibilityRole="button" disabled={loading} onPress={submitVerify} style={[styles.primaryButton, styles.authPrimaryButton, loading && styles.buttonDisabled]}>
+              <Text style={styles.primaryButtonText}>{loading ? membershipCopy.processing[language] : uiCopy.completeAccount[language]}</Text>
             </Pressable>
           </>
         ) : mode === "forgot" ? (
           <>
             <Text style={styles.authPanelTitle}>{uiCopy.forgotPassword[language]}</Text>
-            <AuthInput icon="mail" value={username} onChangeText={setUsername} placeholder={copy.email[language]} keyboardType="email-address" />
-            <Pressable disabled={loading} onPress={submitForgot} style={[styles.primaryButton, loading && styles.buttonDisabled]}>
-              <Text style={styles.primaryButtonText}>{loading ? "Gönderiliyor..." : uiCopy.recoverPassword[language]}</Text>
+            <AuthField icon="mail" value={email} onChangeText={setEmail} label={copy.email[language]} keyboardType="email-address" autoComplete="email" textContentType="emailAddress" editable={!loading} />
+            <Pressable accessibilityRole="button" disabled={loading} onPress={submitForgot} style={[styles.primaryButton, styles.authPrimaryButton, loading && styles.buttonDisabled]}>
+              <Text style={styles.primaryButtonText}>{loading ? membershipCopy.processing[language] : uiCopy.recoverPassword[language]}</Text>
             </Pressable>
             <Pressable onPress={() => setMode("login")} style={styles.textButton}>
               <Text style={styles.textButtonText}>{uiCopy.backToLogin[language]}</Text>
@@ -1317,29 +1348,32 @@ function AuthScreen({ language, pendingVerificationEmail, login, register, verif
           </>
         ) : (
           <>
-            <Text style={styles.authPanelTitle}>{mode === "login" ? uiCopy.memberLogin[language] : uiCopy.newAccount[language]}</Text>
-            <AuthInput icon={mode === "login" ? "mail" : "person"} value={username} onChangeText={(value) => setUsername(mode === "login" ? value : value.slice(0, USERNAME_MAX_LENGTH))} placeholder={mode === "login" ? copy.email[language] : copy.username[language]} keyboardType={mode === "login" ? "email-address" : "default"} maxLength={mode === "login" ? undefined : USERNAME_MAX_LENGTH} />
+            <AuthField icon={mode === "login" ? "mail" : "person"} value={mode === "login" ? email : username} onChangeText={mode === "login" ? setEmail : setUsername} label={mode === "login" ? copy.email[language] : copy.username[language]} keyboardType={mode === "login" ? "email-address" : "default"} maxLength={mode === "login" ? undefined : USERNAME_MAX_LENGTH} autoComplete={mode === "login" ? "email" : "username-new"} textContentType={mode === "login" ? "emailAddress" : "username"} editable={!loading} />
             {mode === "register" ? (
               <>
-                <AuthInput icon="mail" value={email} onChangeText={setEmail} placeholder={copy.email[language]} keyboardType="email-address" />
+                <AuthField icon="mail" value={email} onChangeText={setEmail} label={copy.email[language]} keyboardType="email-address" autoComplete="email" textContentType="emailAddress" editable={!loading} />
               </>
             ) : null}
-            <View style={styles.passwordWrap}>
-              <AuthInput icon="lock-closed" value={password} onChangeText={setPassword} placeholder={copy.password[language]} secureTextEntry={secure} />
-              <Pressable onPress={() => setSecure((value) => !value)} style={styles.authEye}>
+            <AuthField icon="lock-closed" value={password} onChangeText={setPassword} label={copy.password[language]} secureTextEntry={secure}
+              autoComplete={mode === "register" ? "new-password" : "current-password"} textContentType={mode === "register" ? "newPassword" : "password"} editable={!loading} trailing={
+              <Pressable accessibilityRole="button" accessibilityLabel={(secure ? membershipCopy.showPassword : membershipCopy.hidePassword)[language]} onPress={() => setSecure((value) => !value)} style={styles.authEye}>
                 <Ionicons name={secure ? "eye" : "eye-off"} size={20} color={colors.gold} />
               </Pressable>
+            } />
+            <View style={styles.policyRow}>
+              <Pressable onPress={() => setAccepted((value) => !value)} style={styles.policyCheck} accessibilityLabel={uiCopy.acceptPolicy[language]} accessibilityRole="checkbox" accessibilityState={{ checked: accepted }}>
+                <Ionicons name={accepted ? "checkbox" : "square-outline"} size={22} color={colors.gold} />
+              </Pressable>
+              <Text style={styles.policyText}>
+                {{ tr: "", en: "I accept the ", ru: "Принимаю ", uz: "" }[language]}
+                <Text accessibilityRole="link" onPress={() => setLegalModal("terms")} style={styles.legalLinkText}>{{ tr: "Kullanım Koşulları (EULA)", en: "Terms (EULA)", ru: "Условия (EULA)", uz: "Shartlar (EULA)" }[language]}</Text>
+                {{ tr: " ve ", en: " and ", ru: " и ", uz: " va " }[language]}
+                <Text accessibilityRole="link" onPress={() => setLegalModal("privacy")} style={styles.legalLinkText}>{{ tr: "Gizlilik Politikası", en: "Privacy Policy", ru: "Политику конфиденциальности", uz: "Maxfiylik siyosati" }[language]}</Text>
+                {{ tr: "’nı kabul ediyorum.", en: ".", ru: ".", uz: "ni qabul qilaman." }[language]}
+              </Text>
             </View>
-            <Pressable onPress={() => setAccepted((value) => !value)} style={styles.policyRow} accessibilityRole="checkbox" accessibilityState={{ checked: accepted }}>
-              <Ionicons name={accepted ? "checkbox" : "square-outline"} size={22} color={colors.gold} />
-              <Text style={styles.policyText}>{uiCopy.acceptPolicy[language]}</Text>
-            </Pressable>
-            <View style={styles.legalLinks}>
-              <Pressable onPress={() => setLegalModal("terms")}><Text style={styles.legalLinkText}>{uiCopy.readTerms[language]}</Text></Pressable>
-              <Pressable onPress={() => setLegalModal("privacy")}><Text style={styles.legalLinkText}>{uiCopy.readPrivacy[language]}</Text></Pressable>
-            </View>
-            <Pressable disabled={loading} onPress={mode === "login" ? submitLogin : submitRegister} style={[styles.primaryButton, (loading || !accepted) && styles.buttonDisabled]}>
-              <Text style={styles.primaryButtonText}>{loading ? "İşleniyor..." : mode === "login" ? uiCopy.logIn[language] : uiCopy.sendCode[language]}</Text>
+            <Pressable accessibilityRole="button" disabled={loading} onPress={mode === "login" ? submitLogin : submitRegister} style={[styles.primaryButton, styles.authPrimaryButton, (loading || !accepted) && styles.buttonDisabled]}>
+              <Text style={styles.primaryButtonText}>{loading ? membershipCopy.processing[language] : mode === "login" ? uiCopy.logIn[language] : uiCopy.newAccount[language]}</Text>
             </Pressable>
             {mode === "login" ? (
               <Pressable onPress={() => setMode("forgot")} style={styles.textButton}>
@@ -1349,19 +1383,20 @@ function AuthScreen({ language, pendingVerificationEmail, login, register, verif
           </>
         )}
 
-        {message ? <Text style={styles.authMessage}>{message}</Text> : null}
+        <View testID="auth-status-slot" style={styles.authStatusSlot}>
+          {message ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.authMessage, messageOk && { color: colors.ivory }]}>{message}</Text> : null}
+        </View>
 
         <View style={styles.divider}>
           <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>{uiCopy.or[language]}</Text>
           <View style={styles.dividerLine} />
         </View>
+        <View testID="auth-social-row" style={styles.authSocialRow}>
         {googleConfigured ? (
           <AuthGoogleSignInButton
             loading={loading}
             runAuthAction={runAuthAction}
             signInWithGoogle={signInWithGoogle}
-            onSuccess={() => router.replace("/")}
             setMessage={setMessage}
             styles={styles}
             colors={colors}
@@ -1371,44 +1406,29 @@ function AuthScreen({ language, pendingVerificationEmail, login, register, verif
           />
         ) : (
           <>
-            <View style={[styles.googleButton, styles.buttonDisabled]}>
+            <View accessibilityLabel={getAuthErrorMessage({ code: "auth/operation-not-allowed" }, language, true)} style={[styles.googleButton, styles.buttonDisabled]}>
               <Ionicons name="logo-google" size={20} color={colors.ivory} />
-              <Text style={styles.googleText}>{uiCopy.googleContinue[language]}</Text>
+              <Text style={styles.googleText}>Google</Text>
             </View>
-            {googleConfigError ? <Text style={styles.authMessage}>{googleConfigError}</Text> : null}
           </>
         )}
         {Platform.OS === "ios" || Platform.OS === "web" ? (
-          <Pressable disabled={loading} onPress={() => {
+          <Pressable accessibilityRole="button" accessibilityLabel={uiCopy.appleContinue[language]} disabled={loading} onPress={() => {
             if (!requireLegalAcceptance()) return;
-            void runAuthAction(signInWithApple, () => router.replace("/"));
+            void runAuthAction(signInWithApple);
           }} style={[styles.googleButton, !accepted && styles.buttonDisabled]}>
             <Ionicons name="logo-apple" size={20} color={colors.ivory} />
-            <Text style={styles.googleText}>{uiCopy.appleContinue[language]}</Text>
+            <Text style={styles.googleText}>Apple</Text>
           </Pressable>
         ) : null}
+        </View>
+      </View>
+      <View style={styles.authFooterRow}>
+        <Pressable accessibilityRole="button" onPress={() => navigation.dispatch(TabActions.jumpTo("index"))} style={styles.authFooterLink}><Text style={styles.authFooterText}>{{ tr: "Misafir olarak devam et", en: "Continue as guest", ru: "Продолжить как гость", uz: "Mehmon sifatida davom etish" }[language]}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={membershipCopy.support[language]} onPress={() => router.push("/support")} style={styles.authHelp}><Ionicons name="help-circle-outline" size={19} color={colors.muted} /></Pressable>
+      </View>
       </View>
     </AppChrome>
-  );
-}
-
-function AuthInput({ icon, ...props }: {
-  icon: keyof typeof Ionicons.glyphMap;
-  value: string;
-  onChangeText: (value: string) => void;
-  placeholder: string;
-  secureTextEntry?: boolean;
-  keyboardType?: "default" | "email-address" | "phone-pad";
-  maxLength?: number;
-}) {
-  const styles = useAccountStyles();
-  const { theme } = useAppTheme();
-  const colors = getThemeColors(theme);
-  return (
-    <View style={styles.authInputWrap}>
-      <Ionicons name={icon} size={18} color={colors.gold} />
-      <TextInput {...props} placeholderTextColor={colors.muted} style={styles.authInput} />
-    </View>
   );
 }
 
@@ -1599,39 +1619,6 @@ function CountrySelect({ label, value, onPress }: { label: string; value: string
         <Ionicons name="chevron-down" size={18} color={colors.gold} />
       </Pressable>
     </View>
-  );
-}
-
-function CountryPickerModal({ visible, language, onClose, onSelect, styles, colors }: {
-  visible: boolean;
-  language: "tr" | "en" | "ru" | "uz";
-  onClose: () => void;
-  onSelect: (country: string) => void;
-  styles: ReturnType<typeof createStyles>;
-  colors: ReturnType<typeof getThemeColors>;
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.uploadModalBackdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.countryModalPanel}>
-          <View style={styles.uploadModalHeader}>
-            <Text style={styles.uploadModalTitle}>{uiCopy.country[language]}</Text>
-            <Pressable onPress={onClose} style={styles.modalCloseSmall}>
-              <Ionicons name="close" size={21} color={colors.ivory} />
-            </Pressable>
-          </View>
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {countryCommunities.map((country) => (
-              <Pressable key={country.id} onPress={() => onSelect(country.name.tr)} style={styles.countryOption}>
-                <Text style={styles.countryOptionText}>{country.name[language]}</Text>
-                <Text style={styles.countryCode}>{country.code}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
   );
 }
 
@@ -1828,35 +1815,26 @@ function useAccountStyles() {
 
 function createStyles(colors: ReturnType<typeof getThemeColors>) {
 return StyleSheet.create({
-  authHero: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(217, 184, 101, 0.3)",
-    backgroundColor: colors.panel,
-    padding: 12,
-    gap: 5,
-    marginBottom: 10
-  },
-  authTitle: {
-    color: colors.ivory,
-    fontSize: 20,
-    fontWeight: "900"
-  },
-  authText: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "700"
-  },
+  authContent: { width: "100%", maxWidth: 520, alignSelf: "center", minWidth: 0 },
+  authPrimaryButton: { minHeight: 46, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, marginTop: 0 },
+  authFooterRow: { flexDirection: "row", alignItems: "center" },
+  authFooterLink: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  authHelp: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  authSocialRow: { flexDirection: "row", gap: 10 },
+  authStatusSlot: { minHeight: 36, justifyContent: "center" },
+  authFooterText: { color: colors.muted, fontSize: 12, lineHeight: 18, textAlign: "center", fontWeight: "500" },
   authTabs: {
     flexDirection: "row",
-    gap: 8,
+    gap: 4,
+    padding: 3,
+    borderRadius: 14,
+    backgroundColor: colors.panel,
     marginBottom: 8
   },
   authTab: {
     flex: 1,
-    minHeight: 36,
-    borderRadius: 8,
+    minHeight: 38,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.panel,
@@ -1869,72 +1847,51 @@ return StyleSheet.create({
   },
   authTabText: {
     color: colors.ivory,
-    fontWeight: "900"
+    fontWeight: "600"
   },
   authTabTextActive: {
     color: colors.ink
   },
   authPanel: {
-    borderRadius: 8,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.panel,
-    padding: 12,
-    gap: 7
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 4
   },
   authPanelTitle: {
     color: colors.ivory,
     fontSize: 17,
-    fontWeight: "900",
-    marginBottom: 2
+    fontWeight: "600",
+    marginBottom: 4
   },
   authNotice: {
     color: colors.gold,
     fontWeight: "800",
     marginBottom: 4
   },
-  authInputWrap: {
-    minHeight: 40,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelSoft,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12
-  },
-  authInput: {
-    flex: 1,
-    color: colors.ivory,
-    fontSize: 14,
-    fontWeight: "800"
-  },
-  passwordWrap: {
-    position: "relative"
-  },
   authEye: {
-    position: "absolute",
-    right: 6,
-    top: 2,
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center"
   },
   policyRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    paddingVertical: 2
+    alignItems: "center",
+    gap: 6,
+    minHeight: 44
   },
+  policyCheck: { width: 28, minHeight: 44, justifyContent: "center", alignItems: "center" },
   policyText: {
     flex: 1,
     color: colors.muted,
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "700"
+    fontWeight: "400"
   },
   legalLinks: {
     flexDirection: "row",
@@ -1943,8 +1900,9 @@ return StyleSheet.create({
   },
   legalLinkText: {
     color: colors.gold,
-    fontSize: 12,
-    fontWeight: "900"
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 15
   },
   legalBackdrop: {
     flex: 1,
@@ -2039,13 +1997,16 @@ return StyleSheet.create({
   },
   textButtonText: {
     color: colors.gold,
-    fontWeight: "900"
+    fontWeight: "500",
+    fontSize: 12
   },
   authMessage: {
-    color: colors.gold,
-    textAlign: "center",
-    fontWeight: "800",
-    lineHeight: 20
+    color: "#F2C9CB",
+    paddingVertical: 2,
+    fontSize: 11,
+    textAlign: "left",
+    fontWeight: "500",
+    lineHeight: 15
   },
   divider: {
     flexDirection: "row",
@@ -2064,19 +2025,26 @@ return StyleSheet.create({
     fontWeight: "800"
   },
   googleButton: {
-    minHeight: 40,
-    borderRadius: 8,
+    flex: 1,
+    minWidth: 0,
+    minHeight: 46,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.panelSoft,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8
   },
   googleText: {
     color: colors.ivory,
-    fontWeight: "900"
+    fontWeight: "600",
+    fontSize: 14,
+    textAlign: "center",
+    flexShrink: 1
   },
   summary: {
     borderRadius: 8,

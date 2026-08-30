@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { InteractionManager, StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
+import { FlatList, InteractionManager, NativeScrollEvent, NativeSyntheticEvent, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppChrome } from "@/components/app-chrome";
 import { PressableScale } from "@/components/ui/pressable-scale";
@@ -29,8 +30,11 @@ import type { JourneyStageView } from "./types";
 import { prepareTimelineGameQueue } from "@/src/services/firebase/timeline-game-service";
 import { prefetchImageUrls } from "@/utils/image-prefetch";
 import { markPerformanceEvent } from "@/utils/performance";
+import { resolveImageUri } from "@/utils/image-source";
 import { useStartupPhase } from "@/hooks/use-startup-phase";
 import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
+import { useArtNewsHeadlines } from "@/hooks/use-art-news";
+import { NewsCard } from "@/components/news-card";
 
 export default function HomeExperienceScreen() {
   const router = useRouteFirstRouter();
@@ -138,6 +142,7 @@ export default function HomeExperienceScreen() {
         <QuickDiscovery theme={theme} title="" items={quickActions} accent={v2Colors.cyan} />
       </Reveal>
     },
+    { key: "art-news", content: <HomeNewsSection /> },
     { key: "for-you", content: <Reveal delay={85}><ArtworkRail theme={theme} title={t(homeCopy.forYou, language)} curatorLabel={t(homeCopy.curatorSelection, language)} curator items={home.feed.recommendations} actionLabel={t(homeCopy.seeAll, language)} onAction={() => router.push("/(tabs)/gallery")} onOpen={openArtwork} /></Reveal> },
     {
       key: "daily-challenge",
@@ -170,6 +175,58 @@ export default function HomeExperienceScreen() {
     </>
   );
 }
+
+function HomeNewsSection() {
+  const { language } = useLanguage();
+  const { theme } = useAppTheme();
+  const router = useRouteFirstRouter();
+  const colors = getThemeColors(theme);
+  const headlines = useArtNewsHeadlines();
+  const { width } = useWindowDimensions();
+  const cardWidth = Math.max(260, width - (width < 360 ? 32 : width > 720 ? 48 : 36));
+  if (!headlines.length) return null;
+  const title = language === "tr" ? "Sanat Haberleri" : language === "ru" ? "Новости искусства" : language === "uz" ? "San’at yangiliklari" : "Art News";
+  const seeAll = language === "tr" ? "Tümünü gör" : language === "ru" ? "Смотреть все" : language === "uz" ? "Barchasini ko‘rish" : "See all";
+  return <View style={homeNewsStyles.section}><View style={homeNewsStyles.header}><Text style={[homeNewsStyles.title, { color: colors.ivory }]}>{title}</Text><Pressable onPress={() => router.push("/art-news")}><Text style={[homeNewsStyles.action, { color: colors.gold }]}>{seeAll}</Text></Pressable></View><HomeHeadlineSlider items={headlines} width={cardWidth} colors={colors} language={language} /></View>;
+}
+
+function HomeHeadlineSlider({ items, width, colors, language }: { items: ReturnType<typeof useArtNewsHeadlines>; width: number; colors: ReturnType<typeof getThemeColors>; language: "tr" | "en" | "ru" | "uz" }) {
+  const listRef = useRef<FlatList<(typeof items)[number]>>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    const urls = [activeIndex - 1, activeIndex, activeIndex + 1]
+      .filter((index) => index >= 0 && index < items.length)
+      .map((index) => items[index].coverMedium || items[index].coverImage)
+      .filter(Boolean)
+      .map((url) => resolveImageUri(url, "large"));
+    if (urls.length) void Image.prefetch([...new Set(urls)], { cachePolicy: "memory-disk" }).catch(() => false);
+  }, [activeIndex, items]);
+
+  const syncIndex = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const nextIndex = Math.max(0, Math.min(items.length - 1, Math.round(event.nativeEvent.contentOffset.x / width)));
+    setActiveIndex((current) => current === nextIndex ? current : nextIndex);
+  };
+  const goTo = (index: number) => {
+    const nextIndex = (index + items.length) % items.length;
+    setActiveIndex(nextIndex);
+    listRef.current?.scrollToIndex({ index: nextIndex, animated: true });
+  };
+
+  return <View style={{ width }}><FlatList ref={listRef} horizontal pagingEnabled bounces={false} data={items} keyExtractor={(item) => `home-headline:${item.id}`} renderItem={({ item }) => <View style={{ width }}><NewsCard item={item} variant="homeHeadline" /></View>} getItemLayout={(_, index) => ({ length: width, offset: width * index, index })} initialNumToRender={1} maxToRenderPerBatch={2} windowSize={3} showsHorizontalScrollIndicator={false} disableIntervalMomentum onMomentumScrollEnd={syncIndex} />{items.length > 1 ? <View pointerEvents="box-none" style={homeNewsStyles.arrows}><Pressable accessibilityLabel={language === "tr" ? "Önceki manşet" : "Previous headline"} hitSlop={8} onPress={() => goTo(activeIndex - 1)} style={[homeNewsStyles.arrow, { backgroundColor: colors.ink, borderColor: colors.line }]}><Ionicons name="chevron-back" size={17} color={colors.ivory} /></Pressable><Pressable accessibilityLabel={language === "tr" ? "Sonraki manşet" : "Next headline"} hitSlop={8} onPress={() => goTo(activeIndex + 1)} style={[homeNewsStyles.arrow, { backgroundColor: colors.ink, borderColor: colors.line }]}><Ionicons name="chevron-forward" size={17} color={colors.ivory} /></Pressable></View> : null}<View style={homeNewsStyles.indicators}>{items.map((item, index) => <View key={`home-indicator:${item.id}`} style={[homeNewsStyles.indicator, { backgroundColor: index === activeIndex ? colors.gold : colors.line }, index === activeIndex && homeNewsStyles.activeIndicator]} />)}</View></View>;
+}
+
+const homeNewsStyles = StyleSheet.create({
+  section: { marginTop: 28, gap: 12 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  title: { flexShrink: 1, fontSize: 21, lineHeight: 27, fontWeight: "800" },
+  action: { fontSize: 11, lineHeight: 15, fontWeight: "700" },
+  arrows: { position: "absolute", top: 72, left: 9, right: 9, flexDirection: "row", justifyContent: "space-between" },
+  arrow: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center", opacity: 0.92 },
+  indicators: { minHeight: 17, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingTop: 9 },
+  indicator: { width: 5, height: 5, borderRadius: 3 },
+  activeIndicator: { width: 22 }
+});
 
 function themeIcon(theme: AppTheme): keyof typeof Ionicons.glyphMap {
   if (theme === "light") return "sunny-outline";

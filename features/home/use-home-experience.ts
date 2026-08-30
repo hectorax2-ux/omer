@@ -199,11 +199,11 @@ export function useHomeExperience() {
     social.visibleSuggestedUsers.filter((user) => !(user.uid && followedUidSet.has(user.uid)) && !followedUsernameSet.has(normalizeIdentity(user.username))),
     {
       followingUids: social.followingUids,
-      countryId: resolveCountryId(account.country),
+      countryId: resolveCountryId(account.countryCode ?? account.country),
       interests: account.interests,
       dayKey: feed.dayKey
     }
-  ), [account.country, account.interests, feed.dayKey, followedUidSet, followedUsernameSet, social.followingUids, social.visibleSuggestedUsers]);
+  ), [account.country, account.countryCode, account.interests, feed.dayKey, followedUidSet, followedUsernameSet, social.followingUids, social.visibleSuggestedUsers]);
   const currentSeerLevel = [...seerLevels].reverse().find((level) => seerPoints >= level.requiredPoints) ?? seerLevels[0];
   const isInitialReady = cacheHydrated
     && journeyExperience.loaded

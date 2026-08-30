@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
-import { copy } from "@/data/content";
 import { getThemeColors } from "@/constants/theme";
 import { useAccount } from "@/hooks/use-account";
 import { useAppTheme } from "@/hooks/use-app-theme";
@@ -27,7 +26,7 @@ const supportCopy = {
   subject: { tr: "Başlık", en: "Title", ru: "Заголовок", uz: "Sarlavha" },
   detail: { tr: "Talep detayı", en: "Request details", ru: "Детали обращения", uz: "So'rov tafsiloti" },
   firstName: { tr: "Ad", en: "First name", ru: "Имя", uz: "Ism" },
-  lastName: { tr: "Soyad", en: "Last name", ru: "Фамилия", uz: "Familiya" },
+  lastName: { tr: "Soyad (isteğe bağlı)", en: "Last name (optional)", ru: "Фамилия (необязательно)", uz: "Familiya (ixtiyoriy)" },
   email: { tr: "E-posta", en: "Email", ru: "E-mail", uz: "Email" },
   send: { tr: "Gönder", en: "Send", ru: "Отправить", uz: "Yuborish" },
   pickTopic: {
@@ -45,10 +44,10 @@ const supportCopy = {
   closed: { tr: "Kapandı", en: "Closed", ru: "Закрыто", uz: "Yopilgan" },
   open: { tr: "Açık", en: "Open", ru: "Открыто", uz: "Ochiq" },
   errorMissing: {
-    tr: "Kategori, konu ve tüm alanları doldur. Detay en az 10 karakter olmalı.",
-    en: "Fill in category, topic, and all fields. Details must be at least 10 characters.",
-    ru: "Заполните категорию, тему и все поля. Детали — минимум 10 символов.",
-    uz: "Kategoriya, mavzu va barcha maydonlarni to'ldiring. Tafsilot kamida 10 belgi bo'lishi kerak."
+    tr: "Kategori, konu ve zorunlu alanları doldur. Detay en az 10 karakter olmalı.",
+    en: "Fill in the category, topic, and required fields. Details must be at least 10 characters.",
+    ru: "Заполните категорию, тему и обязательные поля. Детали — минимум 10 символов.",
+    uz: "Kategoriya, mavzu va majburiy maydonlarni to'ldiring. Tafsilot kamida 10 belgi bo'lishi kerak."
   }
 };
 
@@ -340,7 +339,7 @@ export default function SupportScreen() {
 
   async function submitTicket() {
     const cleanTopic = topic.trim();
-    if (!category || !subcategory || !subject.trim() || cleanTopic.length < supportMessageMin || !firstName.trim() || !lastName.trim() || !email.includes("@")) {
+    if (!category || !subcategory || !subject.trim() || cleanTopic.length < supportMessageMin || !firstName.trim() || !email.includes("@")) {
       setError(supportCopy.errorMissing[language]);
       return;
     }
@@ -559,7 +558,7 @@ function TicketList({ title, tickets, emptyText, replyLabel, closedLabel, openLa
           <View style={styles.ticketTop}>
             <View style={styles.ticketTitleBlock}>
               <Text style={styles.ticketSubject} numberOfLines={2}>{ticket.subject}</Text>
-              <Text style={styles.ticketMeta}>{ticket.subcategory} · {ticket.firstName} {ticket.lastName}</Text>
+              <Text style={styles.ticketMeta}>{ticket.subcategory} · {[ticket.firstName, ticket.lastName].filter(Boolean).join(" ")}</Text>
             </View>
             <View style={[styles.statusPill, ticket.status === "closed" && styles.statusPillClosed]}>
               <Text style={[styles.statusText, ticket.status === "closed" && styles.statusTextClosed]}>
@@ -570,7 +569,7 @@ function TicketList({ title, tickets, emptyText, replyLabel, closedLabel, openLa
           <View style={styles.messages}>
             {ticket.messages.map((message) => (
               <View key={message.id} style={[styles.messageBubble, message.author === "admin" && styles.adminBubble]}>
-                <Text style={styles.messageAuthor}>{message.author === "admin" ? (language === "tr" ? "Art Atlas Destek" : language === "ru" ? "Поддержка Art Atlas" : language === "uz" ? "Art Atlas Yordam" : "Art Atlas Support") : `${ticket.firstName} ${ticket.lastName}`}</Text>
+                <Text style={styles.messageAuthor}>{message.author === "admin" ? (language === "tr" ? "Art Atlas Destek" : language === "ru" ? "Поддержка Art Atlas" : language === "uz" ? "Art Atlas Yordam" : "Art Atlas Support") : [ticket.firstName, ticket.lastName].filter(Boolean).join(" ")}</Text>
                 <Text style={styles.messageText}>{message.text}</Text>
                 <Text style={styles.messageTime}>{message.createdAt}</Text>
               </View>

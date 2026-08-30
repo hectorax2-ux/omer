@@ -136,6 +136,13 @@ export type TimeCapsule = {
   title?: string;
   artistId?: string;
   artistName?: string;
+  artistYears?: string;
+  artistImage?: string;
+  language?: Language;
+  status?: "submitted" | "read" | "draft_reply" | "answered" | "archived";
+  replyLanguage?: Language;
+  answeredAt?: string;
+  answeredBy?: string;
 };
 
 export type ArtSystemsNotificationType =

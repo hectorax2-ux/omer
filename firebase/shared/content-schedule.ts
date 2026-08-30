@@ -11,6 +11,7 @@ export const SCHEDULED_CONTENT_RULES: ScheduledContentRule[] = [
   { collection: "artists", queryStatus: "scheduled", publishStatus: "published" },
   { collection: "museums", queryStatus: "scheduled", publishStatus: "published" },
   { collection: "artStories", queryStatus: "scheduled", publishStatus: "published" },
+  { collection: "news", queryStatus: "scheduled", publishStatus: "published" },
   { collection: "quizzes", queryStatus: "scheduled", publishStatus: "published" },
   { collection: "notifications", queryStatus: "scheduled", publishStatus: "published" },
   { collection: "rewardInfos", queryStatus: "scheduled", publishStatus: "published" },

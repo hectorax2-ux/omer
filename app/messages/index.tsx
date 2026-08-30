@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter, useSegments } from "expo-router";
 import { AppChrome, AdSlot } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
+import { ScreenDataState } from "@/components/screen-data-state";
 import { copy as contentCopy } from "@/data/content";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { getThemeColors } from "@/constants/theme";
@@ -49,6 +50,8 @@ function AuthenticatedMessagesScreen() {
   const { account } = useAccount();
   const {
     listTab,
+    conversationStatus,
+    retryConversations,
     setListTab,
     visibleConversations,
     unreadConversationCount,
@@ -90,6 +93,14 @@ function AuthenticatedMessagesScreen() {
     if (tab === "archived" && archivedConversationCount > 0) return `${base} (${archivedConversationCount})`;
     if (tab === "blocked" && blockedUsers.length > 0) return `${base} (${blockedUsers.length})`;
     return base;
+  }
+
+  if (!visibleConversations.length && conversationStatus !== "success") {
+    return (
+      <AppChrome title={copy.title[language]} eyebrow="Art Atlas" showBackButton={!inTabs} backToHome={!inTabs} showTopAd={false}>
+        <ScreenDataState status={conversationStatus} onRetry={retryConversations} />
+      </AppChrome>
+    );
   }
 
   return (

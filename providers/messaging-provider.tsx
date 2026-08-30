@@ -39,11 +39,13 @@ type PendingMessage = {
   clientMessageId: string;
   conversationId: string;
   text: string;
-  status: "sending" | "failed";
+  status: "sending" | "sent" | "failed";
 };
 
 type MessagingContextValue = {
   conversations: ConversationRecord[];
+  conversationStatus: "loading" | "success" | "error";
+  retryConversations: () => void;
   listTab: MessageListTab;
   setListTab: (tab: MessageListTab) => void;
   listScrollOffset: number;
@@ -70,6 +72,7 @@ type MessagingContextValue = {
   getThreadMessages: (conversationId: string) => DirectMessageRecord[];
   pendingMessages: PendingMessage[];
   retryPending: (clientMessageId: string) => Promise<void>;
+  reconcilePending: (clientMessageIds: string[]) => void;
   startConversationWith: (recipientId: string) => string;
   syncError: string;
   clearSyncError: () => void;
@@ -79,6 +82,8 @@ type MessagingContextValue = {
 
 export const MessagingContext = createContext<MessagingContextValue>({
   conversations: [],
+  conversationStatus: "loading",
+  retryConversations: () => undefined,
   listTab: "primary",
   setListTab: () => undefined,
   listScrollOffset: 0,
@@ -105,6 +110,7 @@ export const MessagingContext = createContext<MessagingContextValue>({
   getThreadMessages: () => [],
   pendingMessages: [],
   retryPending: async () => undefined,
+  reconcilePending: () => undefined,
   startConversationWith: () => "",
   syncError: "",
   clearSyncError: () => undefined,
@@ -127,6 +133,8 @@ export function MessagingProvider({ children }: PropsWithChildren) {
   const startupPhase = useStartupPhase();
   const messagingNetworkReady = startupPhase !== "critical" || pathname.startsWith("/messages");
   const [conversations, setConversations] = useState<ConversationRecord[]>([]);
+  const [conversationStatus, setConversationStatus] = useState<"loading" | "success" | "error">("loading");
+  const [conversationRetry, setConversationRetry] = useState(0);
   const [listTab, setListTab] = useState<MessageListTab>("primary");
   const [listScrollOffset, setListScrollOffset] = useState(0);
   const [threadMessages, setThreadMessages] = useState<Record<string, DirectMessageRecord[]>>({});
@@ -140,6 +148,7 @@ export function MessagingProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!isAuthenticated || !account.uid) {
       setConversations([]);
+      setConversationStatus("loading");
       setThreadMessages({});
       setUserBlocks([]);
       setDeletedConversationIds([]);
@@ -149,9 +158,13 @@ export function MessagingProvider({ children }: PropsWithChildren) {
     const cacheKey = `messages:conversations:${uid}`;
     let active = true;
     const memoryValue = peekResourceCache<ConversationRecord[]>(cacheKey);
-    if (memoryValue) setConversations(memoryValue);
+    setConversations(memoryValue ?? []);
+    setConversationStatus(memoryValue ? "success" : "loading");
     void loadResourceCache(cacheKey, isConversationArray).then((cached) => {
-      if (active && cached && !memoryValue) setConversations(cached);
+      if (active && cached && !memoryValue) {
+        setConversations(cached);
+        setConversationStatus("success");
+      }
     });
     if (!messagingNetworkReady) return () => {
       active = false;
@@ -160,13 +173,23 @@ export function MessagingProvider({ children }: PropsWithChildren) {
       if (!active) return;
       const visible = items.filter((item) => conversationHasInboxThread(item, uid));
       setConversations(visible);
+      setConversationStatus("success");
       void saveResourceCache(cacheKey, visible);
+    }, () => {
+      if (!active) return;
+      setConversationStatus((current) => current === "success" ? "success" : "error");
     });
     return () => {
       active = false;
       unsubscribe();
     };
-  }, [account.uid, isAuthenticated, messagingNetworkReady]);
+  }, [account.uid, conversationRetry, isAuthenticated, messagingNetworkReady]);
+
+  useEffect(() => {
+    if (conversationStatus !== "error" || !messagingNetworkReady) return undefined;
+    const retry = setTimeout(() => setConversationRetry((current) => current + 1), 8000);
+    return () => clearTimeout(retry);
+  }, [conversationStatus, messagingNetworkReady]);
 
   useEffect(() => {
     if (!isAuthenticated || !account.uid) {
@@ -261,14 +284,14 @@ export function MessagingProvider({ children }: PropsWithChildren) {
         clientMessageId
       });
       setDeletedConversationIds((current) => current.filter((item) => item !== conversationId));
-      setPendingMessages((current) => current.filter((item) => item.clientMessageId !== clientMessageId));
+      setPendingMessages((current) => current.map((item) => item.clientMessageId === clientMessageId ? { ...item, status: "sent" } : item));
       markPerformanceEvent("MESSAGE_SERVER_CONFIRM", { conversationId });
       return { ok: true };
     } catch (error) {
       const wasCommitted = await confirmDirectMessageRemote(conversationId, clientMessageId).catch(() => false);
       if (wasCommitted) {
         setDeletedConversationIds((current) => current.filter((item) => item !== conversationId));
-        setPendingMessages((current) => current.filter((item) => item.clientMessageId !== clientMessageId));
+        setPendingMessages((current) => current.map((item) => item.clientMessageId === clientMessageId ? { ...item, status: "sent" } : item));
         setSyncError("");
         return { ok: true };
       }
@@ -386,8 +409,19 @@ export function MessagingProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
+  const reconcilePending = useCallback((clientMessageIds: string[]) => {
+    if (!clientMessageIds.length) return;
+    const confirmed = new Set(clientMessageIds);
+    setPendingMessages((current) => current.filter((item) => !confirmed.has(item.clientMessageId)));
+  }, []);
+
   const value = useMemo<MessagingContextValue>(() => ({
     conversations,
+    conversationStatus,
+    retryConversations: () => {
+      setConversationStatus(conversations.length ? "success" : "loading");
+      setConversationRetry((current) => current + 1);
+    },
     listTab,
     setListTab,
     listScrollOffset,
@@ -454,12 +488,13 @@ export function MessagingProvider({ children }: PropsWithChildren) {
     getThreadMessages: (conversationId) => threadMessages[conversationId] ?? [],
     pendingMessages,
     retryPending,
+    reconcilePending,
     startConversationWith: (recipientId) => conversationIdForParticipants(account.uid, recipientId),
     syncError,
     clearSyncError: () => setSyncError(""),
     setActiveConversationId,
     deletedConversationIds
-  }), [account.uid, activeConversationId, blockUser, blockedUserIds, blockedUsers, blocksLoadedForUid, conversations, deleteConversation, deletedConversationIds, listScrollOffset, listTab, pendingMessages, retryPending, sendMessage, syncError, threadMessages, toggleArchive, unblockUser]);
+  }), [account.uid, activeConversationId, blockUser, blockedUserIds, blockedUsers, blocksLoadedForUid, conversationStatus, conversations, deleteConversation, deletedConversationIds, listScrollOffset, listTab, pendingMessages, reconcilePending, retryPending, sendMessage, syncError, threadMessages, toggleArchive, unblockUser]);
 
   return <MessagingContext.Provider value={value}>{children}</MessagingContext.Provider>;
 }

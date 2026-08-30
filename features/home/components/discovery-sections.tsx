@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { Platform, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { EqualHeightHeaderSlot } from "@/components/ui/equal-height-header-slot";
@@ -84,27 +84,11 @@ function ArtworkActionCard({ item, styles, width, height, gameCard, compactGameC
       style={[styles.actionCard, gameCard && styles.gameCard, compactGameCard && styles.compactGameCard, { height }, accentSurface(item.accent)]}
       accessibilityLabel={`${item.title}. ${item.subtitle}`}
     >
-      <HomeImage uri={item.image} imageFocus={item.imageFocus} style={styles.actionArtwork} contentFit="cover" transition={180} showFallbackIcon={false} imageVariant="thumbnail" />
-      {Platform.OS === "android" ? null : <View style={[styles.actionOverlay, accentWash(item.accent)]} pointerEvents="none" />}
-      <ClippedGradient
-        colors={actionGradient(item.accent)}
-        androidColors={androidActionGradient(item.accent)}
-        start={{ x: 0, y: 1 }}
-        end={{ x: 1, y: 0 }}
-        radius={radii.lg}
-        pointerEvents="none"
-      />
-      <ClippedGradient
-        colors={gameCard ? ["rgba(5,8,20,0.9)", "rgba(5,8,20,0.12)"] : ["rgba(5,8,20,0.15)", "rgba(5,8,20,0.93)"]}
-        androidColors={gameCard ? ["rgba(5,8,20,0.88)", "rgba(5,8,20,0.2)"] : ["rgba(5,8,20,0.22)", "rgba(5,8,20,0.94)"]}
-        start={gameCard ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 }}
-        end={gameCard ? { x: 1, y: 0.5 } : { x: 0.5, y: 1 }}
-        radius={radii.lg}
-        pointerEvents="none"
-      />
-      {Platform.OS === "android" ? null : <View style={[styles.actionIllumination, accentIllumination(item.accent)]} pointerEvents="none" />}
-      <View style={styles.actionTopEdge} pointerEvents="none" />
-
+      {item.image ? (
+        <HomeImage uri={item.image} imageFocus={item.imageFocus} imageVariant="card" transition={120}
+          showFallbackIcon={false} style={StyleSheet.absoluteFill} />
+      ) : null}
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(8,12,28,0.62)" }]} />
       <View style={[styles.actionIcon, compactGameCard && styles.compactGameIcon, accentIcon(item.accent)]}>
         <Ionicons name={item.icon} size={compactGameCard ? 18 : 21} color={item.accent === "gold" ? "#FFE4A0" : "#F7F4FF"} />
       </View>
@@ -279,27 +263,6 @@ function accentSurface(accent: HomeActionItem["accent"]) {
   return { backgroundColor: "#17122D", borderColor: "rgba(138,92,246,0.17)" };
 }
 
-function accentWash(accent: HomeActionItem["accent"]) {
-  if (accent === "blue") return { backgroundColor: "rgba(36,81,198,0.36)" };
-  if (accent === "pink") return { backgroundColor: "rgba(118,20,63,0.43)" };
-  if (accent === "gold") return { backgroundColor: "rgba(94,65,20,0.42)" };
-  return { backgroundColor: "rgba(64,26,121,0.4)" };
-}
-
-function actionGradient(accent: HomeActionItem["accent"]): readonly [string, string, string] {
-  if (accent === "blue") return ["rgba(7,12,29,0.96)", "rgba(17,41,94,0.74)", "rgba(49,95,234,0.2)"];
-  if (accent === "pink") return ["rgba(24,7,20,0.96)", "rgba(91,17,50,0.74)", "rgba(214,46,134,0.2)"];
-  if (accent === "gold") return ["rgba(20,15,13,0.96)", "rgba(78,55,23,0.75)", "rgba(243,189,78,0.18)"];
-  return ["rgba(10,8,26,0.96)", "rgba(49,20,91,0.74)", "rgba(109,53,213,0.2)"];
-}
-
-function androidActionGradient(accent: HomeActionItem["accent"]): readonly [string, string] {
-  if (accent === "blue") return ["rgba(8,14,32,0.96)", "rgba(36,81,198,0.2)"];
-  if (accent === "pink") return ["rgba(26,8,22,0.96)", "rgba(214,46,134,0.16)"];
-  if (accent === "gold") return ["rgba(23,18,15,0.96)", "rgba(184,137,45,0.16)"];
-  return ["rgba(12,9,29,0.96)", "rgba(109,53,213,0.18)"];
-}
-
 function accentIcon(accent: HomeActionItem["accent"]) {
   if (accent === "blue") return { backgroundColor: "rgba(49,95,234,0.72)", borderColor: "rgba(132,170,255,0.35)", shadowColor: v2Colors.blue };
   if (accent === "pink") return { backgroundColor: "rgba(214,46,134,0.68)", borderColor: "rgba(255,142,198,0.34)", shadowColor: v2Colors.pink };
@@ -312,13 +275,6 @@ function accentShadow(accent: HomeActionItem["accent"]) {
   if (accent === "pink") return { shadowColor: "#76143F" };
   if (accent === "gold") return { shadowColor: "#B8892D" };
   return { shadowColor: "#401A79" };
-}
-
-function accentIllumination(accent: HomeActionItem["accent"]) {
-  if (accent === "blue") return { backgroundColor: "rgba(49,215,244,0.12)" };
-  if (accent === "pink") return { backgroundColor: "rgba(214,46,134,0.14)" };
-  if (accent === "gold") return { backgroundColor: "rgba(243,189,78,0.14)" };
-  return { backgroundColor: "rgba(109,53,213,0.15)" };
 }
 
 function accentArrow(accent: HomeActionItem["accent"]) {
@@ -344,10 +300,6 @@ function createStyles(theme: AppTheme) {
     actionCard: { borderRadius: radii.lg, padding: 15, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", position: "relative" },
     gameCard: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
     compactGameCard: { paddingHorizontal: 11, gap: 8 },
-    actionArtwork: { ...StyleSheet.absoluteFillObject, transform: [{ scale: 1.035 }] },
-    actionOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: radii.lg },
-    actionIllumination: { position: "absolute", right: -18, top: -30, width: 96, height: 96, borderRadius: 48 },
-    actionTopEdge: { position: "absolute", top: 0, left: 18, right: 18, height: 1, backgroundColor: "rgba(255,255,255,0.2)" },
     actionIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center", shadowOpacity: 0.24, shadowRadius: 7, shadowOffset: { width: 0, height: 0 }, elevation: 2 },
     compactGameIcon: { width: 34, height: 34, borderRadius: 17, flexShrink: 0 },
     actionTextBlock: { flex: 1, flexShrink: 1, minWidth: 0, maxWidth: "100%", marginTop: 8, paddingRight: 27, overflow: "hidden" },

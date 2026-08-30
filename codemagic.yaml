@@ -24,6 +24,19 @@ workflows:
         - $HOME/.gradle/wrapper
 
     scripts:
+      - name: Verify the existing Google Play upload certificate
+        script: |
+          set -euo pipefail
+          EXPECTED_SHA1="4E:ED:3A:C6:45:FD:F0:2C:E7:18:18:0F:FC:67:01:72:B4:93:B1:D5"
+          ACTUAL_SHA1=$(keytool -J-Duser.language=en -list -v \
+            -keystore "$CM_KEYSTORE_PATH" \
+            -storepass:env CM_KEYSTORE_PASSWORD \
+            -alias "$CM_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA1: //p' | tr -d '\r')
+          if [ "$ACTUAL_SHA1" != "$EXPECTED_SHA1" ]; then
+            echo "Google Play upload certificate mismatch. Restore the existing upload key; do not generate a replacement."
+            exit 1
+          fi
+
       - name: Install JavaScript dependencies
         script: npm ci
 

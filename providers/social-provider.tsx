@@ -14,7 +14,7 @@ import { t } from "@/utils/localized-text";
 import { usePathname } from "expo-router";
 import { useStartupPhase } from "@/hooks/use-startup-phase";
 import { isResourceArray, loadResourceCache, peekResourceCache, saveResourceCache } from "@/src/services/cache/resource-cache";
-import { fetchProfileDiscoveryPage, mapProfileDiscoveryUser, profileDiscoveryErrorDetails, type SuggestedUser } from "@/src/services/firebase/profile-discovery-service";
+import { fetchProfileDiscoveryPage, mapProfileDiscoveryUser, PROFILE_DISCOVERY_SESSION_LIMIT, profileDiscoveryErrorDetails, type SuggestedUser } from "@/src/services/firebase/profile-discovery-service";
 
 export type { SuggestedUser } from "@/src/services/firebase/profile-discovery-service";
 
@@ -94,7 +94,7 @@ export function SocialProvider({ children }: PropsWithChildren) {
   const startupPhase = useStartupPhase();
   const directoryRelevant = pathname === "/" || pathname.startsWith("/discover") || pathname.startsWith("/profile") || pathname.startsWith("/feed");
   const directoryNetworkReady = directoryRelevant || startupPhase === "idle";
-  const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>(() => peekResourceCache<SuggestedUser[]>(USER_DIRECTORY_CACHE_KEY) ?? []);
+  const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>(() => (peekResourceCache<SuggestedUser[]>(USER_DIRECTORY_CACHE_KEY) ?? []).slice(0, PROFILE_DISCOVERY_SESSION_LIMIT));
   const [followingRecords, setFollowingRecords] = useState<UserFollowRecord[]>([]);
   const [followingReady, setFollowingReady] = useState(false);
   const [followersByUid, setFollowersByUid] = useState<Record<string, UserFollowRecord[]>>({});
@@ -120,7 +120,7 @@ export function SocialProvider({ children }: PropsWithChildren) {
     let active = true;
     void loadResourceCache(USER_DIRECTORY_CACHE_KEY, isSuggestedUserArray).then((cached) => {
       if (!active || !cached) return;
-      setSuggestedUsers(cached);
+      setSuggestedUsers(cached.slice(0, PROFILE_DISCOVERY_SESSION_LIMIT));
       setProfileDiscoveryStatus("success");
     });
     return () => {
@@ -136,10 +136,11 @@ export function SocialProvider({ children }: PropsWithChildren) {
     setProfileDiscoveryError("");
     fetchProfileDiscoveryPage().then((page) => {
         if (!active) return;
-        setSuggestedUsers(page.users);
-        void saveResourceCache(USER_DIRECTORY_CACHE_KEY, page.users);
+        const firstPage = page.users.slice(0, PROFILE_DISCOVERY_SESSION_LIMIT);
+        setSuggestedUsers(firstPage);
+        void saveResourceCache(USER_DIRECTORY_CACHE_KEY, firstPage);
         usersPageCursorRef.current = page.cursor;
-        setHasMoreUsers(page.hasMore);
+        setHasMoreUsers(page.hasMore && firstPage.length < PROFILE_DISCOVERY_SESSION_LIMIT);
         setProfileDiscoveryStatus("success");
       })
       .catch((error) => {
@@ -175,16 +176,17 @@ export function SocialProvider({ children }: PropsWithChildren) {
   }, [startupPhase]);
 
   const loadMoreUsers = useCallback(async () => {
-    if (usersPageLoadingRef.current || !hasMoreUsers) return false;
+    if (usersPageLoadingRef.current || !hasMoreUsers || suggestedUsersRef.current.length >= PROFILE_DISCOVERY_SESSION_LIMIT) return false;
     usersPageLoadingRef.current = true;
     try {
       const page = await fetchProfileDiscoveryPage(usersPageCursorRef.current);
       usersPageCursorRef.current = page.cursor;
-      setHasMoreUsers(page.hasMore);
+      const remaining = Math.max(0, PROFILE_DISCOVERY_SESSION_LIMIT - suggestedUsersRef.current.length);
+      setHasMoreUsers(page.hasMore && remaining > page.users.length);
       setSuggestedUsers((current) => {
         const merged = new Map(current.map((user) => [user.uid || user.username, user]));
-        page.users.forEach((user) => merged.set(user.uid || user.username, user));
-        const users = [...merged.values()];
+        page.users.slice(0, remaining).forEach((user) => merged.set(user.uid || user.username, user));
+        const users = [...merged.values()].slice(0, PROFILE_DISCOVERY_SESSION_LIMIT);
         void saveResourceCache(USER_DIRECTORY_CACHE_KEY, users);
         return users;
       });
@@ -201,7 +203,7 @@ export function SocialProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (!account.uid) return;
-    const countryCode = resolveCountryCode(account.country) ?? undefined;
+    const countryCode = account.countryCode ?? resolveCountryCode(account.country) ?? undefined;
     setSuggestedUsers((current) => current.map((user) => user.uid === account.uid
       ? {
         ...user,
@@ -212,7 +214,7 @@ export function SocialProvider({ children }: PropsWithChildren) {
         image: account.avatar ?? ""
       }
       : user));
-  }, [account.avatar, account.country, account.displayName, account.uid, account.username]);
+  }, [account.avatar, account.country, account.countryCode, account.displayName, account.uid, account.username]);
 
   useEffect(() => {
     if (!account.uid || !canUseMemberFeatures) {
@@ -274,11 +276,11 @@ export function SocialProvider({ children }: PropsWithChildren) {
         isDisabled: account.isSuspended,
         isAdmin: account.isAdmin,
         country: account.country,
-        countryCode: resolveCountryCode(account.country) ?? undefined
+        countryCode: account.countryCode ?? resolveCountryCode(account.country) ?? undefined
       });
     }
     return index;
-  }, [account.avatar, account.badges, account.country, account.displayName, account.isAdmin, account.isPremium, account.isSuspended, account.role, account.uid, account.username, suggestedUsers]);
+  }, [account.avatar, account.badges, account.country, account.countryCode, account.displayName, account.isAdmin, account.isPremium, account.isSuspended, account.role, account.uid, account.username, suggestedUsers]);
 
   const usersByUsername = useMemo(() => {
     const index = new Map<string, SuggestedUser>();
@@ -295,11 +297,11 @@ export function SocialProvider({ children }: PropsWithChildren) {
         isDisabled: account.isSuspended,
         isAdmin: account.isAdmin,
         country: account.country,
-        countryCode: resolveCountryCode(account.country) ?? undefined
+        countryCode: account.countryCode ?? resolveCountryCode(account.country) ?? undefined
       });
     }
     return index;
-  }, [account.avatar, account.badges, account.country, account.displayName, account.isAdmin, account.isPremium, account.isSuspended, account.role, account.uid, account.username, suggestedUsers]);
+  }, [account.avatar, account.badges, account.country, account.countryCode, account.displayName, account.isAdmin, account.isPremium, account.isSuspended, account.role, account.uid, account.username, suggestedUsers]);
 
   const followingUids = useMemo(
     () => followingRecords.map((record) => record.followedId).filter((uid) => Boolean(uid) && !blockedUserIds.includes(uid)),

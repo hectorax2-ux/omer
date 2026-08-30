@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { ClippedGradient } from "@/components/ui/clipped-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppChrome } from "@/components/app-chrome";
 import { AuthRequired } from "@/components/auth-required";
 import { CoverImage } from "@/components/cover-image";
@@ -45,6 +45,7 @@ function AuthenticatedArtistLetterScreen() {
   const compact = width < 360;
   const styles = useMemo(() => createStyles(colors, compact), [colors, compact]);
   const router = useRouter();
+  const { letterId } = useLocalSearchParams<{ letterId?: string }>();
   const reducedMotion = useReducedMotion();
   const { artists, loading: artistsLoading } = useArtists(250);
   const { createTimeCapsule, timeCapsules } = useArtSystems();
@@ -75,6 +76,10 @@ function AuthenticatedArtistLetterScreen() {
   const activeLetter = mine.find((item) => item.id === activeLetterId) ?? null;
   const orbitArtists = useMemo(() => pickOrbitArtists(artists), [artists]);
   const unlockLetterWindow = useCallback(() => setWindowNonce((value) => value + 1), []);
+
+  useEffect(() => {
+    if (letterId && mine.some((item) => item.id === letterId)) setActiveLetterId(letterId);
+  }, [letterId, mine]);
 
   function playDispatchMotion() {
     if (reducedMotion) return;
@@ -117,7 +122,6 @@ function AuthenticatedArtistLetterScreen() {
   }
 
   function openReply(letter: TimeCapsule) {
-    if (!letter.reply) return;
     setActiveLetterId(letter.id);
     if (!letter.opened) {
       updateTimeCapsuleStatus(letter.id, { opened: true }).catch(() => undefined);
@@ -229,12 +233,13 @@ function AuthenticatedArtistLetterScreen() {
             <Text style={styles.archiveTitle}>{copy.archive}</Text>
             <View style={styles.archiveGrid}>
               {mine.map((letter) => (
-                <Pressable disabled={!letter.reply} key={letter.id} onPress={() => openReply(letter)} style={styles.archiveCard}>
+                <Pressable key={letter.id} onPress={() => openReply(letter)} style={styles.archiveCard}>
                   <View style={styles.archiveCardTop}>
                     <Text numberOfLines={1} style={styles.archiveMeta}>{letter.artistName || formatArchiveDate(letter.createdAt, language)}</Text>
-                    {letter.reply ? <Ionicons color={colors.plum} name={letter.opened ? "mail-open" : "hourglass"} size={15} /> : null}
+                    <Ionicons color={letter.reply ? colors.gold : colors.muted} name={letter.reply ? (letter.opened ? "mail-open" : "mail-unread") : "hourglass-outline"} size={15} />
                   </View>
                   <Text numberOfLines={1} style={styles.archivePreview}>{letter.title || letter.note}</Text>
+                  <Text style={[styles.archiveStatus, { color: letter.reply ? colors.jade : colors.muted }]}>{letter.reply ? copy.answered : copy.waiting}</Text>
                 </Pressable>
               ))}
             </View>
@@ -457,7 +462,7 @@ function ReplyModal({
   onClose: () => void;
 }) {
   return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible={Boolean(letter?.reply)}>
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={Boolean(letter)}>
       <View style={replyStyles.overlay}>
         <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
         <View style={[replyStyles.card, { backgroundColor: colors.panel, borderColor: hexAlpha(colors.plum, 0.35) }]}>
@@ -465,7 +470,7 @@ function ReplyModal({
             <Ionicons color={colors.gold} name="hourglass" size={18} />
           </View>
           <Text style={[replyStyles.stamp, { color: colors.muted }]}>{copy.fromThePast}</Text>
-          <Text style={[replyStyles.headline, { color: colors.ivory }]}>{copy.replyTitle}</Text>
+          <Text style={[replyStyles.headline, { color: colors.ivory }]}>{letter?.reply ? copy.replyTitle : copy.waiting}</Text>
           {letter?.artistName ? <Text style={[replyStyles.artist, { color: colors.gold }]}>{letter.artistName}</Text> : null}
           {letter?.title || letter?.note ? (
             <View style={[replyStyles.original, { backgroundColor: hexAlpha(colors.navy, 0.45) }]}>
@@ -473,9 +478,9 @@ function ReplyModal({
               <Text style={[replyStyles.originalText, { color: colors.ivory }]}>{letter?.note}</Text>
             </View>
           ) : null}
-          <ScrollView contentContainerStyle={replyStyles.replyBody} style={replyStyles.replyScroll}>
-            <Text style={[replyStyles.replyText, { color: colors.ivory }]}>{letter?.reply}</Text>
-          </ScrollView>
+          {letter?.reply ? <ScrollView contentContainerStyle={replyStyles.replyBody} style={replyStyles.replyScroll}>
+            <Text style={[replyStyles.replyText, { color: colors.ivory }]}>{letter.reply}</Text>
+          </ScrollView> : <Text style={[replyStyles.replyText, { color: colors.muted }]}>{copy.waitingBody}</Text>}
           <Text style={[replyStyles.meta, { color: colors.muted }]}>
             {copy.arrived} · {formatArchiveDate(letter?.repliedAt || letter?.createdAt || "", language)}
           </Text>
@@ -538,6 +543,9 @@ function screenCopy(language: Language) {
     dailyLimit: { tr: "Günde bir mektup", en: "One letter a day", ru: "Одно письмо в день", uz: "Kunda bitta maktub" }[language],
     archiveEyebrow: { tr: "Zaman arşivi", en: "Time archive", ru: "Архив времени", uz: "Vaqt arxivi" }[language],
     archive: { tr: "Gönderilen mektuplar", en: "Sent letters", ru: "Отправленные письма", uz: "Yuborilgan maktublar" }[language],
+    waiting: { tr: "Yanıt bekleniyor", en: "Awaiting reply", ru: "Ожидает ответа", uz: "Javob kutilmoqda" }[language],
+    waitingBody: { tr: "Mektubun Art Atlas editörlerinin yanıt kuyruğunda. Yanıtlandığında burada ve bildirimlerinde göreceksin.", en: "Your letter is in the Art Atlas editorial reply queue. You will see the reply here and in notifications.", ru: "Письмо находится в очереди редакции Art Atlas. Ответ появится здесь и в уведомлениях.", uz: "Maktubingiz Art Atlas tahririyati javob navbatida. Javob bu yerda va bildirishnomalarda ko‘rinadi." }[language],
+    answered: { tr: "Yanıtlandı", en: "Answered", ru: "Отвечено", uz: "Javob berildi" }[language],
     fromThePast: { tr: "Zaman portalından", en: "From the time portal", ru: "Из портала времени", uz: "Vaqt portalidan" }[language],
     replyTitle: { tr: "Geçmişten bir cevap", en: "A reply from another time", ru: "Ответ из другого времени", uz: "O'tmishdan javob" }[language],
     yourLetter: { tr: "Senin mektubun", en: "Your letter", ru: "Ваше письмо", uz: "Sizning maktubingiz" }[language],
@@ -624,7 +632,8 @@ function createStyles(colors: ThemeColors, compact: boolean) {
     archiveCard: { width: "48.5%", minHeight: 68, borderRadius: radii.sm, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel, paddingHorizontal: 10, paddingVertical: 9, gap: 6 },
     archiveCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
     archiveMeta: { color: colors.muted, fontSize: 10, fontWeight: "800", flex: 1 },
-    archivePreview: { color: colors.ivory, fontSize: 12, fontWeight: "700" }
+    archivePreview: { color: colors.ivory, fontSize: 12, fontWeight: "700" },
+    archiveStatus: { fontSize: 9, lineHeight: 12, fontWeight: "800" }
   });
 }
 

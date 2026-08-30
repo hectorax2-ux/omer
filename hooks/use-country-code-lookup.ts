@@ -20,7 +20,7 @@ export function useCountryCodeLookup(extraIdentities: CountryIdentity[] = emptyC
         username: account.username,
         name: account.displayName,
         country: account.country,
-        countryCode: resolveCountryCode(account.country) ?? undefined
+        countryCode: account.countryCode ?? resolveCountryCode(account.country) ?? undefined
       },
       ...suggestedUsers.map((user) => ({
         uid: user.uid,
@@ -36,14 +36,10 @@ export function useCountryCodeLookup(extraIdentities: CountryIdentity[] = emptyC
         name: item.artistName,
         country: item.ownerCountry
       })),
-      ...extraIdentities.map((identity) => ({
-        uid: identity.uid,
-        username: identity.username,
-        name: identity.name
-      }))
+      ...extraIdentities
     ];
     return merged;
-  }, [account.country, account.displayName, account.uid, account.username, extraIdentities, items, suggestedUsers]);
+  }, [account.country, account.countryCode, account.displayName, account.uid, account.username, extraIdentities, items, suggestedUsers]);
 
   useEffect(() => {
     registerIdentities(identities);

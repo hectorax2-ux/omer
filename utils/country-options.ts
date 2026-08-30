@@ -1,26 +1,36 @@
-import { countryCommunities } from "@/data/content";
 import { countryNames } from "@/data/country-names";
 import type { Language } from "@/types/content";
 
-const countryCodes = `AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW`.split(" ");
+const countryCodes = Object.keys(countryNames);
+
+const legacyAliases: Partial<Record<string, string[]>> = {
+  TR: ["turkiye", "Turkey"], UZ: ["uzbekistan", "O'zbekiston"], RU: ["russia"],
+  US: ["usa", "ABD", "США", "AQSH"], GB: ["uk", "İngiltere", "England", "Angliya"], CA: ["canada"],
+  DE: ["germany"], KZ: ["kazakhstan", "Qozog'iston"], FR: ["france"], IT: ["italy"], ES: ["spain"],
+  BR: ["brazil"], MX: ["mexico"], IN: ["india"], CN: ["china"], JP: ["japan"],
+  KR: ["south-korea", "Южная Корея"], ID: ["indonesia"], PK: ["pakistan"], EG: ["egypt"], IR: ["iran"],
+  AU: ["australia"], NL: ["netherlands"], PL: ["poland"], UA: ["ukraine"],
+  SA: ["saudi-arabia"], AR: ["argentina"], ZA: ["south-africa", "ЮАР", "Janubiy Afrika"]
+};
 
 export type CountryOption = {
   id: string;
   code: string;
   name: Record<Language, string>;
+  aliases: string[];
 };
 
 export const countryOptions: CountryOption[] = countryCodes.map((code) => {
-  const curated = countryCommunities.find((item) => item.code === code);
   const localized = countryNames[code as keyof typeof countryNames];
   return {
-    id: curated?.id ?? code.toLocaleLowerCase("en"),
+    id: code.toLocaleLowerCase("en"),
     code,
     name: {
-      tr: curated?.name.tr ?? localized.tr,
-      en: curated?.name.en ?? localized.en,
-      ru: curated?.name.ru ?? localized.ru,
-      uz: curated?.name.uz ?? localized.uz
-    }
+      tr: localized.tr,
+      en: localized.en,
+      ru: localized.ru,
+      uz: localized.uz
+    },
+    aliases: legacyAliases[code] ?? []
   };
 });

@@ -62,18 +62,22 @@ export function CountryLookupProvider({ children }: PropsWithChildren) {
       username: account.username,
       name: account.displayName,
       country: account.country,
-      countryId: resolveCountryId(account.country),
-      countryCode: resolveCountryCode(account.country) ?? undefined
+      countryId: resolveCountryId(account.countryCode || account.country),
+      countryCode: account.countryCode ?? resolveCountryCode(account.country) ?? undefined
     });
-  }, [account.country, account.displayName, account.uid, account.username, upsertIdentity]);
+  }, [account.country, account.countryCode, account.displayName, account.uid, account.username, upsertIdentity]);
 
   const registerIdentities = useCallback((identities: CountryIdentity[]) => {
     setRuntimeIdentities((current) => areCountryIdentitiesEqual(current, identities) ? current : identities);
   }, []);
 
   const lookupMap = useMemo(
-    () => buildCountryCodeLookup([...directoryIdentities, ...runtimeIdentities]),
-    [directoryIdentities, runtimeIdentities]
+    () => buildCountryCodeLookup([
+      { uid: account.uid, username: account.username, name: account.displayName, country: account.country, countryCode: account.countryCode },
+      ...runtimeIdentities,
+      ...directoryIdentities
+    ]),
+    [account.country, account.countryCode, account.displayName, account.uid, account.username, directoryIdentities, runtimeIdentities]
   );
 
   const value = useMemo(

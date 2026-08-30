@@ -9,7 +9,6 @@ import { normalizeDisplayName, normalizeUsername } from "@/constants/account-lim
 import { useRegisterRefresh } from "@/providers/refresh-provider";
 import {
   FirebaseUserProfile,
-  createUserProfile,
   deleteUserAccount,
   firebaseAuth,
   firebaseAuthReady,
@@ -32,6 +31,7 @@ import {
   scrubPublicProfileEmail,
   updateUserProfile,
   uploadProfilePhoto,
+  deleteOwnedProfilePhoto,
   DeleteAccountInput
 } from "@/src/services/firebase";
 import { saveQuizAttempt } from "@/src/services/firebase/quiz-week-service";
@@ -42,7 +42,7 @@ import { isPremiumProfileActive } from "@/utils/premium-status";
 import { extractWeekPeriodId } from "../firebase/shared/competition-week";
 import { parseUserRestrictions, UserRestrictionRecord } from "@/utils/user-restrictions";
 import { invalidateCountryCache } from "@/utils/country-cache";
-import { resolveCountryCode } from "@/utils/country-utils";
+import { getCountryProfileFields, resolveCountryCode } from "@/utils/country-utils";
 import { appleFullName, isAppleCancelError, isAppleSignInAvailable, requestAppleSignInCredential } from "@/utils/apple-auth";
 import { signOutGoogleNativeSession } from "@/hooks/use-google-sign-in";
 import { findUserByUsername } from "@/src/services/firebase/user-service";
@@ -51,7 +51,11 @@ import { markPerformanceEvent } from "@/utils/performance";
 import { loadResourceCache, saveResourceCache } from "@/src/services/cache/resource-cache";
 import { socialDisplayName, socialUsername } from "@/utils/social-auth-profile";
 import { useStartupPhase } from "@/hooks/use-startup-phase";
-import { hasVerifiedSocialProvider, isEmailVerifiedForApp } from "@/utils/email-verification";
+import { isEmailVerifiedForApp } from "@/utils/email-verification";
+import { authErrorCode, createAuthSessionScope, profileNeedsCompletion } from "@/utils/auth-lifecycle";
+import { getAuthErrorMessage } from "@/utils/auth-error-message";
+import { useLanguage } from "@/hooks/use-language";
+import { logAuthStage, traceAuthStep } from "@/utils/auth-diagnostics";
 
 export type MemberRole = UserRoleId;
 
@@ -61,6 +65,7 @@ export type Account = {
   displayName: string;
   bio: string;
   country: string;
+  countryCode?: string;
   city: string;
   interests: string[];
   socialLinks: {
@@ -81,6 +86,8 @@ export type Account = {
   staffBadges: ("moderator" | "editor")[];
   email: string;
   avatar?: string;
+  avatarType?: "uploaded" | "artist" | "default";
+  avatarArtistId?: string;
   totalScore: number;
   completedWeeks: string[];
   restrictions: UserRestrictionRecord[];
@@ -91,6 +98,7 @@ export type AuthActionResult = {
   ok: boolean;
   message: string;
   requiresVerification?: boolean;
+  avatarUrl?: string;
 };
 
 type CachedAccountSnapshot = {
@@ -142,6 +150,7 @@ const initialAccount: Account = {
   email: "member@artatlas.app",
   avatar: undefined,
   country: "Türkiye",
+  countryCode: "TR",
   city: "İstanbul",
   interests: ["Rönesans", "Müze", "Modernizm"],
   socialLinks: {
@@ -187,6 +196,7 @@ export const AccountContext = createContext<AccountContextValue>({
 });
 
 export function AccountProvider({ children }: PropsWithChildren) {
+  const { language } = useLanguage();
   const [account, setAccount] = useState<Account>(initialAccount);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isEmailVerified, setIsEmailVerified] = useState(false);
@@ -196,6 +206,10 @@ export function AccountProvider({ children }: PropsWithChildren) {
   const [profileHydrationError, setProfileHydrationError] = useState(false);
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
+  const [authenticatedUid, setAuthenticatedUid] = useState("");
+  const [authRevision, setAuthRevision] = useState(0);
+  const sessionScope = useRef(createAuthSessionScope());
+  const registrationHint = useRef<{ email: string; username: string } | null>(null);
   const startupPhase = useStartupPhase();
   const verificationRefreshInFlight = useRef(false);
   const lastPremiumSyncAt = useRef(0);
@@ -210,34 +224,10 @@ export function AccountProvider({ children }: PropsWithChildren) {
     photoURL: string;
     message: string;
   }): AuthActionResult => {
-    const provisionalAccount = accountFromFirebaseUser(input.user.uid, input.email, socialDisplayName(input.displayName, input.email, input.user.uid));
-    setAccount({
-      ...provisionalAccount,
-      username: socialUsername(input.email, input.user.uid),
-      avatar: input.photoURL || undefined
-    });
-    setProfileHydrated(false);
-    setProfileHydrationError(false);
-    setNeedsProfileCompletion(true);
-    setIsAuthenticated(true);
-    setIsEmailVerified(true);
-    setPendingVerificationEmail(undefined);
-
-    void getOrCreateSocialProfile(input).then((profile) => {
-      if (firebaseAuth.currentUser?.uid !== input.user.uid) return;
-      const hydratedAccount = accountFromProfile(profile);
-      const incomplete = profileNeedsCompletion(profile);
-      profileServerReadyUidRef.current = input.user.uid;
-      setAccount(hydratedAccount);
-      setProfileHydrated(true);
-      setProfileHydrationError(false);
-      setNeedsProfileCompletion(incomplete);
-      void saveResourceCache(`account:${input.user.uid}`, {
-        account: hydratedAccount,
-        needsProfileCompletion: incomplete
-      } satisfies CachedAccountSnapshot);
-    }).catch((error) => {
-      console.warn("[Auth] Social Firebase account is active; profile provisioning will retry in background.", error);
+    // Auth/profile observers own UI state. A late credential promise must never
+    // reset a profile that the listener has already hydrated.
+    void getOrCreateSocialProfile(input).catch((error) => {
+      console.warn("[Auth] Social profile provisioning deferred.", authErrorCode(error));
     });
 
     return { ok: true, message: input.message };
@@ -248,10 +238,17 @@ export function AccountProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     let disposed = false;
+    const scope = sessionScope.current;
 
     void firebaseAuthReady.then(() => {
       if (disposed) return;
-      unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
+      unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+        if (disposed) return;
+        scope.begin(user?.uid ?? "");
+        setAuthenticatedUid(user?.uid ?? "");
+        setAuthRevision((revision) => revision + 1);
+        profileServerReadyUidRef.current = "";
+        lastPremiumSyncAt.current = 0;
         if (!user) {
           profileServerReadyUidRef.current = "";
           setAccount(initialAccount);
@@ -266,8 +263,9 @@ export function AccountProvider({ children }: PropsWithChildren) {
           return;
         }
         const authenticatedUser = user;
-        const sociallyVerified = hasVerifiedSocialProvider(authenticatedUser);
+        const isCurrentSession = scope.capture(user.uid);
         const verified = isEmailVerifiedForApp(authenticatedUser);
+        logAuthStage("auth-observer", "session", "success");
 
         // Auth restoration is local and navigation-critical. Profile hydration is not:
         // render a usable account shell first, then reconcile Firestore in background.
@@ -280,13 +278,13 @@ export function AccountProvider({ children }: PropsWithChildren) {
         setIsEmailVerified(verified);
         setAuthLoading(false);
         void loadResourceCache(`account:${authenticatedUser.uid}`, isCachedAccountSnapshot).then((cached) => {
-          if (!cached || firebaseAuth.currentUser?.uid !== authenticatedUser.uid || profileServerReadyUidRef.current === authenticatedUser.uid) return;
+          if (disposed || !isCurrentSession() || !cached || cached.account.uid !== authenticatedUser.uid || firebaseAuth.currentUser?.uid !== authenticatedUser.uid || profileServerReadyUidRef.current === authenticatedUser.uid) return;
           setAccount(cached.account);
           setProfileHydrated(true);
-          setProfileHydrationError(false);
-          setNeedsProfileCompletion(cached.needsProfileCompletion);
+          // Cached identity keeps the shell useful, but onboarding completion is
+          // server-authoritative and must never be decided by a stale device flag.
           markPerformanceEvent("PROFILE_DATA_READY", { source: "disk" });
-        });
+        }).catch((error) => console.warn("[Auth] Account cache unavailable.", authErrorCode(error)));
 
         markPerformanceEvent("AUTH_READY", { authenticated: true });
       });
@@ -294,87 +292,86 @@ export function AccountProvider({ children }: PropsWithChildren) {
 
     return () => {
       disposed = true;
+      scope.invalidate();
       unsubscribe?.();
     };
   }, []);
 
   useEffect(() => {
     const user = firebaseAuth.currentUser;
-    if (!isAuthenticated || !user) return undefined;
-
-    const sociallyVerified = hasVerifiedSocialProvider(user);
-
-    return onSnapshot(doc(firestoreDb, "users", user.uid), async (snapshot) => {
-      const rawProfile = snapshot.exists() ? snapshot.data() : undefined;
-      const loadedProfile = snapshot.exists()
-        ? normalizeUserProfile(rawProfile ?? {}, snapshot.id)
-        : sociallyVerified
-          ? await ensureFirestoreProfile(user).catch(() => null)
-          : null;
-      if (firebaseAuth.currentUser?.uid !== user.uid) return;
-      const legacySocialLinks = rawProfile?.socialLinks && typeof rawProfile.socialLinks === "object"
-        ? rawProfile.socialLinks as Record<string, unknown>
-        : undefined;
-      if ((typeof rawProfile?.email === "string" && rawProfile.email.trim()) || (typeof legacySocialLinks?.email === "string" && legacySocialLinks.email.trim())) {
-        void scrubPublicProfileEmail(user.uid).catch((error) => console.warn("[Privacy] Public profile email cleanup failed.", error));
-      }
-      const profile = loadedProfile;
-      if (profile) {
-        if (firebaseAuth.currentUser?.uid !== user.uid) return;
+    if (!authenticatedUid || user?.uid !== authenticatedUid) return undefined;
+    const isCurrentSession = sessionScope.current.capture(user.uid);
+    let active = true;
+    let revision = 0;
+    let provisioning: Promise<FirebaseUserProfile> | undefined;
+    const isCurrent = () => active && isCurrentSession() && firebaseAuth.currentUser?.uid === user.uid;
+    const fail = (error: unknown) => {
+      if (!isCurrent()) return;
+      clearTimeout(deadline);
+      console.warn("[Auth] Profile hydration failed; session retained.", authErrorCode(error));
+      logAuthStage("profile-hydration", "session", "error", error);
+      setProfileHydrationError(true);
+    };
+    // A silent offline listener is a data error, never an auth/route gate.
+    const deadline = setTimeout(() => fail({ code: "profile/unavailable" }), 12000);
+    const unsubscribe = onSnapshot(doc(firestoreDb, "users", user.uid), { includeMetadataChanges: true }, (snapshot) => {
+      const event = ++revision;
+      if (!isCurrent()) return;
+      // Missing local cache is not evidence that an existing server user is new.
+      if (!snapshot.exists() && snapshot.metadata.fromCache) return;
+      void (async () => {
+        const rawProfile = snapshot.exists() ? snapshot.data() : undefined;
+        if (!snapshot.exists() && !provisioning) {
+          const hint = registrationHint.current;
+          provisioning = ensureFirestoreProfile(user, hint && hint.email === user.email?.toLowerCase() ? hint.username : undefined);
+        }
+        const profile = snapshot.exists()
+          ? normalizeUserProfile(rawProfile ?? {}, snapshot.id)
+          : await provisioning!;
+        if (!isCurrent() || event !== revision) return;
+        clearTimeout(deadline);
         profileServerReadyUidRef.current = user.uid;
         const hydratedAccount = accountFromProfile(profile);
+        logAuthStage("profile-normalization", "session", "success");
         const incomplete = profileNeedsCompletion(profile);
         setProfileHydrated(true);
         setProfileHydrationError(false);
-        setNeedsProfileCompletion(incomplete);
-        setAccount((current) => {
-          const usernameChanged = current.username !== hydratedAccount.username;
-          const displayNameChanged = current.displayName !== hydratedAccount.displayName;
-          const countryChanged = current.country !== hydratedAccount.country;
-          if (usernameChanged || displayNameChanged) {
-            syncUserIdentityDenormalizedFields({
-              uid: hydratedAccount.uid,
-              username: hydratedAccount.username,
-              displayName: hydratedAccount.displayName || hydratedAccount.username,
-              previousUsername: usernameChanged ? current.username : undefined
-            }).catch(() => undefined);
-          }
-          if (countryChanged) {
-            const countryCode = resolveCountryCode(hydratedAccount.country) ?? "";
-            if (countryCode) {
-              syncUserCountryDenormalizedFields({
-                uid: hydratedAccount.uid,
-                country: hydratedAccount.country,
-                countryCode
-              }).catch(() => undefined);
-            }
-            invalidateCountryCache([hydratedAccount.uid, hydratedAccount.username, current.username]);
-          }
-          const nextAccount = current.uid === hydratedAccount.uid
-            ? { ...hydratedAccount, completedWeeks: current.completedWeeks, totalScore: current.totalScore }
-            : hydratedAccount;
-          void saveResourceCache(`account:${user.uid}`, { account: nextAccount, needsProfileCompletion: incomplete } satisfies CachedAccountSnapshot);
-          return nextAccount;
-        });
+        // Cached identity is useful offline; only acknowledged server data may
+        // open onboarding. Metadata-only server acknowledgements must be observed.
+        if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) {
+          setNeedsProfileCompletion(incomplete);
+        }
+        setAccount((current) => current.uid === hydratedAccount.uid
+          ? { ...hydratedAccount, completedWeeks: current.completedWeeks, totalScore: current.totalScore }
+          : hydratedAccount);
+        void saveResourceCache(`account:${user.uid}`, { account: hydratedAccount, needsProfileCompletion: incomplete } satisfies CachedAccountSnapshot);
+        const links = rawProfile?.socialLinks as Record<string, unknown> | undefined;
+        if (typeof rawProfile?.email === "string" || typeof links?.email === "string") {
+          void scrubPublicProfileEmail(user.uid).catch((error) => console.warn("[Privacy] Profile cleanup deferred.", authErrorCode(error)));
+        }
         markPerformanceEvent("PROFILE_DATA_READY", { source: snapshot.metadata.fromCache ? "cache" : "server" });
-        return;
-      }
-      setProfileHydrated(false);
-      setNeedsProfileCompletion(true);
-      setProfileHydrationError(true);
-    }, (error) => {
-      console.warn("[Auth] Firebase session restored, but profile hydration failed.", error);
-      if (firebaseAuth.currentUser?.uid !== user.uid) return;
-      setProfileHydrationError(true);
-    });
-  }, [isAuthenticated, refreshCounter]);
+      })().catch((error) => {
+        if (event !== revision) return;
+        provisioning = undefined;
+        clearTimeout(deadline);
+        fail(error);
+      });
+    }, fail);
+    return () => {
+      active = false;
+      clearTimeout(deadline);
+      unsubscribe();
+    };
+  }, [authenticatedUid, authRevision, refreshCounter]);
 
   useEffect(() => {
     const user = firebaseAuth.currentUser;
     if (startupPhase === "critical" || !isAuthenticated || !isEmailVerified || !user) return undefined;
+    const isCurrentSession = sessionScope.current.capture(user.uid);
+    let active = true;
     loadMemberScore(user.uid)
       .then((summary) => {
-        if (firebaseAuth.currentUser?.uid !== user.uid) return;
+        if (!active || !isCurrentSession() || firebaseAuth.currentUser?.uid !== user.uid) return;
         setAccount((current) => {
           const scoredAccount = mergeMemberScore(current, summary);
           void saveResourceCache(`account:${user.uid}`, { account: scoredAccount, needsProfileCompletion: needsProfileCompletionRef.current } satisfies CachedAccountSnapshot);
@@ -382,19 +379,23 @@ export function AccountProvider({ children }: PropsWithChildren) {
         });
       })
       .catch(() => undefined);
-  }, [isAuthenticated, isEmailVerified, refreshCounter, startupPhase]);
+    return () => { active = false; };
+  }, [authenticatedUid, authRevision, isAuthenticated, isEmailVerified, refreshCounter, startupPhase]);
 
   useEffect(() => {
+    let active = true;
     const refreshVerification = async () => {
       const user = firebaseAuth.currentUser;
       if (!user || verificationRefreshInFlight.current) return;
       if (isEmailVerified && !pendingVerificationEmail) return;
       verificationRefreshInFlight.current = true;
+      const isCurrentSession = sessionScope.current.capture(user.uid);
       try {
         await reload(user);
         const pendingEmail = pendingVerificationEmail?.trim().toLowerCase();
         if (!isEmailVerifiedForApp(user) || (pendingEmail && user.email?.trim().toLowerCase() !== pendingEmail)) return;
         await getIdToken(user, true);
+        if (!active || !isCurrentSession() || firebaseAuth.currentUser?.uid !== user.uid) return;
         setIsEmailVerified(true);
         setPendingVerificationEmail(undefined);
         const verifiedEmail = user.email?.trim();
@@ -414,8 +415,8 @@ export function AccountProvider({ children }: PropsWithChildren) {
       if (state === "active") void refreshVerification();
     });
     void refreshVerification();
-    return () => subscription.remove();
-  }, [isEmailVerified, pendingVerificationEmail]);
+    return () => { active = false; subscription.remove(); };
+  }, [authenticatedUid, authRevision, isEmailVerified, pendingVerificationEmail]);
 
   // On every authenticated launch, reconcile the platform store with Firebase. iOS
   // keeps its existing server sync; Android also restores Play purchases before the
@@ -436,7 +437,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
       if (state === "active") void sync();
     });
     return () => subscription.remove();
-  }, [isAuthenticated, isEmailVerified, startupPhase]);
+  }, [authenticatedUid, isAuthenticated, isEmailVerified, startupPhase]);
 
   const value = useMemo(
     () => ({
@@ -457,58 +458,29 @@ export function AccountProvider({ children }: PropsWithChildren) {
       },
       login: async (email: string, password: string) => {
         try {
-          const credential = await loginWithEmail(email, password);
-          const verified = isEmailVerifiedForApp(credential.user);
-          setAccount(accountFromFirebaseUser(credential.user.uid, credential.user.email ?? email, credential.user.displayName ?? ""));
-          setProfileHydrated(false);
-          setProfileHydrationError(false);
-          setNeedsProfileCompletion(false);
-          setPendingVerificationEmail(verified ? undefined : credential.user.email ?? email);
-          setIsAuthenticated(true);
-          setIsEmailVerified(verified);
-
-          if (!verified) {
-            return { ok: true, message: "Giriş yapıldı. Lütfen e-posta adresinizi doğrulayın.", requiresVerification: true };
-          }
-
+          await loginWithEmail(email, password);
           return { ok: true, message: "" };
         } catch (error) {
-          return { ok: false, message: getFriendlyAuthError(error) };
+          console.warn("[Auth] Email sign-in failed.", authErrorCode(error));
+          logAuthStage("login-action", "email", "error", error);
+          return { ok: false, message: getAuthErrorMessage(error, language) };
         }
       },
       register: async (nextAccount: Pick<Account, "username" | "password" | "email">) => {
+        registrationHint.current = { email: nextAccount.email.trim().toLowerCase(), username: nextAccount.username.trim() };
         try {
           const credential = await registerWithEmail(nextAccount.email, nextAccount.password);
-          const username = nextAccount.username.trim();
-          const displayName = username.replace(/[._-]+/g, " ").trim() || username;
-
-          const profile = await createUserProfile({
-            uid: credential.user.uid,
-            username,
-            email: nextAccount.email,
-            displayName,
-            role: "user",
-            country: "",
-            city: "",
-            bio: "",
-            interests: [],
-            socialLinks: {},
-            badges: [],
-            showInCountryExplore: true,
-            profileOnboardingCompleted: false,
-            profileOnboardingVersion: 1
+          // Profile creation belongs to the UID-scoped listener. Email delivery
+          // is retryable from the account screen and cannot undo a valid signup.
+          void sendEmailVerification(credential.user).catch((error) => {
+            console.warn("[Auth] Verification delivery deferred; signup succeeded.", authErrorCode(error));
           });
-          await sendEmailVerification(credential.user);
-          setAccount(accountFromProfile(profile));
-          setProfileHydrated(true);
-          setPendingVerificationEmail(nextAccount.email);
-          setIsAuthenticated(true);
-          setIsEmailVerified(false);
-          setNeedsProfileCompletion(true);
-
-          return { ok: true, message: "Doğrulama bağlantısı e-posta adresinize gönderildi.", requiresVerification: true };
+          return { ok: true, message: "" };
         } catch (error) {
-          return { ok: false, message: getFriendlyAuthError(error) };
+          registrationHint.current = null;
+          console.warn("[Auth] Email signup failed.", authErrorCode(error));
+          logAuthStage("login-action", "email-signup", "error", error);
+          return { ok: false, message: getAuthErrorMessage(error, language) };
         }
       },
       verifyEmailCode: async (code?: string) => {
@@ -538,14 +510,10 @@ export function AccountProvider({ children }: PropsWithChildren) {
             return { ok: false, message: "Lütfen e-posta adresinizi doğrulayın.", requiresVerification: true };
           }
 
-          const profile = await getUserProfile(user.uid);
-          setAccount(profile ? accountFromProfile(profile) : accountFromFirebaseUser(user.uid, user.email ?? "", user.displayName ?? ""));
-          setProfileHydrated(Boolean(profile));
-          setNeedsProfileCompletion(profile ? profileNeedsCompletion(profile) : true);
-          setPendingVerificationEmail(undefined);
-          setIsAuthenticated(true);
-          setIsEmailVerified(true);
           await getIdToken(user, true);
+          if (firebaseAuth.currentUser?.uid !== user.uid) return { ok: false, message: "" };
+          setPendingVerificationEmail(undefined);
+          setIsEmailVerified(true);
           return { ok: true, message: "" };
         } catch (error) {
           const user = firebaseAuth.currentUser;
@@ -563,9 +531,14 @@ export function AccountProvider({ children }: PropsWithChildren) {
       forgotPassword: async (email: string) => {
         try {
           await resetPassword(email);
-          return { ok: true, message: "Şifre sıfırlama bağlantısı e-posta adresinize gönderildi." };
+          return { ok: true, message: {
+            tr: "Bu e-posta için bir hesap varsa şifre sıfırlama bağlantısı gönderildi.",
+            en: "If an account uses this email, a password reset link has been sent.",
+            ru: "Если аккаунт с этим e-mail существует, ссылка для сброса отправлена.",
+            uz: "Bu e-pochta bilan hisob mavjud bo‘lsa, parolni tiklash havolasi yuborildi."
+          }[language] };
         } catch (error) {
-          return { ok: false, message: getFriendlyAuthError(error) };
+          return { ok: false, message: getAuthErrorMessage(error, language) };
         }
       },
       resendVerificationEmail: async () => {
@@ -640,7 +613,9 @@ export function AccountProvider({ children }: PropsWithChildren) {
             message: "Google ile giriş yapıldı."
           });
         } catch (error) {
-          return { ok: false, message: getFriendlySocialSignInError("Google", error) };
+          console.warn("[Auth] Google sign-in failed.", authErrorCode(error));
+          logAuthStage("login-action", "google", "error", error);
+          return { ok: false, message: getAuthErrorMessage(error, language, true) };
         }
       },
       signInWithApple: async () => {
@@ -666,16 +641,16 @@ export function AccountProvider({ children }: PropsWithChildren) {
             return { ok: false, message: "Apple ile giriş yalnızca desteklenen Apple cihazlarda kullanılabilir." };
           }
 
-          const appleSignIn = await requestAppleSignInCredential();
+          const appleSignIn = await traceAuthStep("native-provider", "apple", requestAppleSignInCredential);
           const appleCredential = appleSignIn.credential;
 
           if (!appleCredential.identityToken) {
-            console.error("[Apple Sign In] Missing Apple identity token.", { user: appleCredential.user });
+            console.error("[Apple Sign In] Missing Apple identity token.");
             return { ok: false, message: "Apple token alınamadı. Lütfen tekrar deneyin." };
           }
 
           const credential = await loginWithAppleIdentityToken(appleCredential.identityToken, appleSignIn.rawNonce);
-          const email = credential.user.email ?? appleCredential.email ?? `${appleCredential.user}@privaterelay.appleid.com`;
+          const email = credential.user.email ?? appleCredential.email ?? "";
           return completeSocialSignIn({
             user: credential.user,
             email,
@@ -685,10 +660,11 @@ export function AccountProvider({ children }: PropsWithChildren) {
           });
         } catch (error) {
           if (isAppleCancelError(error)) {
-            return { ok: false, message: "Apple ile giriş iptal edildi." };
+            return { ok: false, message: "" };
           }
-          console.warn("[Apple Sign In] Failed.", error);
-          return { ok: false, message: getFriendlyAppleSignInError(error) };
+          console.warn("[Apple Sign In] Failed.", authErrorCode(error));
+          logAuthStage("login-action", "apple", "error", error);
+          return { ok: false, message: getAuthErrorMessage(error, language, true) };
         }
       },
       updateAccount: (nextAccount: Partial<Account>) => {
@@ -719,14 +695,21 @@ export function AccountProvider({ children }: PropsWithChildren) {
             : avatarSource
               ? await uploadProfilePhoto(user.uid, avatarSource)
               : account.avatar ?? "";
+          const avatarType = nextAccount.removeAvatar
+            ? "default"
+            : nextAccount.avatarType ?? account.avatarType ?? (photoURL ? "uploaded" : "default");
+          const avatarArtistId = avatarType === "artist" ? nextAccount.avatarArtistId : undefined;
 
           const displayName = nextAccount.displayName ? normalizeDisplayName(nextAccount.displayName) : account.displayName;
           const previousUsername = username !== account.username ? account.username : undefined;
           const identityChanged = Boolean(previousUsername) || displayName !== account.displayName;
 
-          const country = nextAccount.country ?? account.country;
-          const countryCode = resolveCountryCode(country) ?? "";
-          const countryChanged = country !== account.country || countryCode !== resolveCountryCode(account.country);
+          const countryFields = getCountryProfileFields(nextAccount.country !== undefined || nextAccount.countryCode !== undefined
+            ? { country: nextAccount.country, countryCode: nextAccount.countryCode }
+            : account);
+          const country = countryFields.country;
+          const countryCode = countryFields.countryCode;
+          const countryChanged = country !== account.country || countryCode !== (account.countryCode ?? resolveCountryCode(account.country));
 
           if (displayName !== user.displayName || photoURL !== user.photoURL) {
             await updateProfile(user, {
@@ -734,6 +717,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
               photoURL: nextAccount.removeAvatar ? null : photoURL || undefined
             });
           }
+          const isCurrentSession = sessionScope.current.capture(user.uid);
 
           // Keep the completion marker in the same Firestore update as the
           // required profile fields. Auth metadata is updated first so a later
@@ -752,10 +736,13 @@ export function AccountProvider({ children }: PropsWithChildren) {
               profileOnboardingCompleted: true,
               profileOnboardingVersion: 1
             } : {}),
-            photoURL
+            photoURL,
+            avatarType,
+            avatarArtistId: avatarArtistId ?? ""
           });
 
           const photoChanged = photoURL !== (account.avatar ?? "");
+          if (!isCurrentSession() || firebaseAuth.currentUser?.uid !== user.uid) return { ok: false, message: "" };
           if (identityChanged || photoChanged) {
             syncUserIdentityDenormalizedFields({
               uid: user.uid,
@@ -763,7 +750,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
               displayName,
               previousUsername,
               photoURL
-            }).then(() => setRefreshCounter((value) => value + 1)).catch(() => undefined);
+            }).then(() => { if (isCurrentSession()) setRefreshCounter((value) => value + 1); }).catch(() => undefined);
           }
 
           if (countryChanged && countryCode) {
@@ -781,10 +768,13 @@ export function AccountProvider({ children }: PropsWithChildren) {
             displayName,
             bio: nextAccount.bio ?? account.bio,
             country,
+            countryCode,
             city: nextAccount.city ?? account.city,
             interests: nextAccount.interests ?? account.interests,
             socialLinks: nextAccount.socialLinks ?? account.socialLinks,
             avatar: photoURL || undefined,
+            avatarType,
+            avatarArtistId,
             isDiscoverableByCountry: nextAccount.isDiscoverableByCountry ?? account.isDiscoverableByCountry
           };
           const incomplete = nextAccount.completeOnboarding ? false : needsProfileCompletionRef.current;
@@ -796,10 +786,14 @@ export function AccountProvider({ children }: PropsWithChildren) {
             needsProfileCompletion: incomplete
           } satisfies CachedAccountSnapshot);
 
+          if (photoChanged && account.avatar) {
+            void deleteOwnedProfilePhoto(user.uid, account.avatar).catch(() => undefined);
+          }
+
           // Server hydration reconciles the optimistic atomic snapshot without
           // keeping the onboarding UI open on an extra profile read.
           void getUserProfile(user.uid).then((profile) => {
-            if (!profile || firebaseAuth.currentUser?.uid !== user.uid) return;
+            if (!profile || !isCurrentSession() || firebaseAuth.currentUser?.uid !== user.uid) return;
             const hydratedAccount = accountFromProfile(profile);
             const hydratedIncomplete = profileNeedsCompletion(profile);
             setAccount(hydratedAccount);
@@ -811,7 +805,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
             } satisfies CachedAccountSnapshot);
           }).catch(() => undefined);
 
-          return { ok: true, message: "Profil kaydedildi." };
+          return { ok: true, message: "Profil kaydedildi.", avatarUrl: photoURL };
         } catch (error) {
           return { ok: false, message: getFriendlyAuthError(error) };
         }
@@ -831,15 +825,13 @@ export function AccountProvider({ children }: PropsWithChildren) {
         }
       },
       logout: async () => {
-        if (account.uid) await disablePushDevice(account.uid).catch(() => undefined);
-        await signOutGoogleNativeSession().catch((error) => {
-          console.warn("[Google Sign In] Native session sign-out failed; continuing Firebase logout.", error);
+        if (account.uid) void disablePushDevice(account.uid).catch(() => undefined);
+        const nativeCleanup = signOutGoogleNativeSession().catch((error) => {
+          console.warn("[Google Sign In] Native sign-out cleanup failed.", authErrorCode(error));
         });
         await firebaseLogout();
-        setProfileHydrated(false);
-        setIsAuthenticated(false);
-        setIsEmailVerified(false);
-        setNeedsProfileCompletion(false);
+        registrationHint.current = null;
+        await nativeCleanup;
       },
       canJoinWeeklyQuiz: (weekId: string) => {
         if (account.isAdmin) return true;
@@ -872,7 +864,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
         });
       }
     }),
-    [account, authLoading, completeSocialSignIn, isAuthenticated, isEmailVerified, needsProfileCompletion, pendingVerificationEmail, profileHydrated, profileHydrationError]
+    [account, authLoading, completeSocialSignIn, isAuthenticated, isEmailVerified, language, needsProfileCompletion, pendingVerificationEmail, profileHydrated, profileHydrationError]
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
@@ -886,10 +878,6 @@ function mergeMemberScore(account: Account, summary: Awaited<ReturnType<typeof l
   };
 }
 
-function hasSocialAuthProvider(user: User | null = firebaseAuth.currentUser) {
-  return hasVerifiedSocialProvider(user);
-}
-
 function accountFromProfile(profile: FirebaseUserProfile): Account {
   const badges = normalizeProfileBadges(profile);
 
@@ -900,6 +888,7 @@ function accountFromProfile(profile: FirebaseUserProfile): Account {
     displayName: profile.displayName,
     bio: profile.bio,
     country: profile.country,
+    countryCode: getCountryProfileFields(profile).countryCode || undefined,
     city: profile.city,
     interests: profile.interests,
     socialLinks: profile.socialLinks,
@@ -912,29 +901,14 @@ function accountFromProfile(profile: FirebaseUserProfile): Account {
     badges,
     email: firebaseAuth.currentUser?.uid === profile.uid ? firebaseAuth.currentUser.email ?? "" : "",
     avatar: profile.photoURL || undefined,
+    avatarType: profile.avatarType,
+    avatarArtistId: profile.avatarArtistId,
     password: "",
     totalScore: 0,
     completedWeeks: [],
     restrictions: parseUserRestrictions(profile.restrictions),
     profileVisitVisibility: profile.profileVisitVisibility
   };
-}
-
-function profileNeedsCompletion(profile: FirebaseUserProfile) {
-  if (profile.role === "admin") return false;
-  if (profile.profileOnboardingCompleted === true) return false;
-  if (profile.profileOnboardingCompleted === false) return true;
-
-  const username = profile.username.trim().toLocaleLowerCase("en");
-  const displayName = profile.displayName.trim().toLocaleLowerCase("en");
-  const generatedUsername = /^(?:user|hz)[a-z0-9]{6,}$/i.test(username)
-    || (/^[a-z0-9]{8,12}$/i.test(username) && /\d/.test(username));
-  const providerBio = /^(google|apple) ile hızlı kayıt\.?$/i.test(profile.bio.trim());
-  const incompleteLegacyProfile = !profile.bio.trim()
-    && !profile.country.trim()
-    && (!displayName || displayName === username);
-
-  return providerBio || incompleteLegacyProfile || (generatedUsername && (!displayName || displayName === username));
 }
 
 function normalizeProfileBadges(profile: FirebaseUserProfile): BadgeId[] {
@@ -978,6 +952,7 @@ function accountFromFirebaseUser(uid: string, email: string, displayName: string
     displayName: displayName || username,
     bio: "",
     country: "",
+    countryCode: undefined,
     city: "",
     interests: [],
     email,
@@ -1021,10 +996,11 @@ async function getOrCreateSocialProfile(input: {
     profileOnboardingVersion: 1
   });
 
-  const shouldRestoreProviderName = profile.profileOnboardingCompleted !== true
+  const shouldRestoreProviderName = profile.profileOnboardingCompleted === false
     && (!profile.displayName.trim() || profile.displayName === profile.username)
     && providerDisplayName !== profile.displayName;
-  const shouldRestoreProviderPhoto = !profile.photoURL && Boolean(input.photoURL);
+  const shouldRestoreProviderPhoto = profile.profileOnboardingCompleted === false
+    && profile.avatarType !== "default" && !profile.photoURL && Boolean(input.photoURL);
   if (!shouldRestoreProviderName && !shouldRestoreProviderPhoto) return profile;
 
   const patch = {
@@ -1035,13 +1011,9 @@ async function getOrCreateSocialProfile(input: {
   return { ...profile, ...patch };
 }
 
-async function ensureFirestoreProfile(user: User) {
-  if (!user.providerData.some((provider) => provider.providerId === "google.com" || provider.providerId === "apple.com")) {
-    return null;
-  }
-
+async function ensureFirestoreProfile(user: User, registrationUsername?: string) {
   const email = user.email ?? "";
-  const username = socialUsername(email, user.uid);
+  const username = registrationUsername || socialUsername(email, user.uid);
 
   return getOrCreateUserProfile({
     uid: user.uid,
@@ -1057,7 +1029,7 @@ async function ensureFirestoreProfile(user: User) {
     socialLinks: {},
     profileOnboardingCompleted: false,
     profileOnboardingVersion: 1
-  }).catch(() => null);
+  });
 }
 
 function isCachedAccountSnapshot(value: unknown): value is CachedAccountSnapshot {
@@ -1068,39 +1040,6 @@ function isCachedAccountSnapshot(value: unknown): value is CachedAccountSnapshot
     && typeof cached.account.username === "string"
     && typeof cached.account.displayName === "string"
     && typeof cached.needsProfileCompletion === "boolean";
-}
-
-function getFriendlyAppleSignInError(error: unknown) {
-  const firebaseLikeError = error as { code?: string; message?: string; customData?: { serverResponse?: string } };
-  const code = error instanceof FirebaseError ? error.code : firebaseLikeError.code ?? "";
-
-  if (code === "auth/network-request-failed" || code === "unavailable") {
-    return "Ağ hatası. İnternet bağlantınızı kontrol edip tekrar deneyin.";
-  }
-
-  if (code === "ERR_REQUEST_FAILED") {
-    return "Apple token alınamadı. Lütfen tekrar deneyin.";
-  }
-
-  return getFriendlySocialSignInError("Apple", error);
-}
-
-function getFriendlySocialSignInError(provider: "Google" | "Apple", error: unknown) {
-  const firebaseLikeError = error as { code?: string; message?: string; customData?: { serverResponse?: string } };
-  const code = error instanceof FirebaseError ? error.code : firebaseLikeError.code ?? "";
-  const combinedMessage = `${code} ${firebaseLikeError.message ?? ""} ${firebaseLikeError.customData?.serverResponse ?? ""}`;
-
-  if (code === "auth/account-exists-with-different-credential") {
-    return `Bu e-posta başka bir giriş yöntemine bağlı. Önce mevcut yöntemle giriş yapıp ardından ${provider} hesabınızı bağlayın.`;
-  }
-  if (code === "auth/user-disabled") return "Bu hesap devre dışı bırakılmış. Destek ekibiyle iletişime geçin.";
-  if (code === "auth/network-request-failed" || code === "unavailable") return "Ağ hatası. İnternet bağlantınızı kontrol edip tekrar deneyin.";
-  if (code === "auth/operation-not-allowed") return `${provider} ile giriş şu anda etkin değil. Lütfen destek ekibiyle iletişime geçin.`;
-  if (code === "auth/invalid-credential" || combinedMessage.includes("INVALID_LOGIN_CREDENTIALS")) {
-    return `${provider} kimlik doğrulaması yenilenemedi. Hesabı tekrar seçip yeniden deneyin.`;
-  }
-  if (code === "auth/too-many-requests") return "Çok fazla giriş denemesi yapıldı. Lütfen biraz sonra tekrar deneyin.";
-  return `${provider} ile giriş tamamlanamadı. Lütfen tekrar deneyin.`;
 }
 
 function getFriendlyAuthError(error: unknown) {

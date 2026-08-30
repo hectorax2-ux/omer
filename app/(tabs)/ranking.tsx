@@ -13,7 +13,8 @@ import { CommunityArtworkPreviewFooter } from "@/components/community-artwork-pr
 import { areRewardedAdRequirementsEnabled } from "@/constants/ad-feature-flags";
 import { AppTheme, getThemeColors, isBrightTheme } from "@/constants/theme";
 import { radii, v2Colors } from "@/constants/design";
-import { copy, countryCommunities, languages } from "@/data/content";
+import { copy, languages } from "@/data/content";
+import { getLocalizedCountryName } from "@/utils/country-utils";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useCommunityArt } from "@/hooks/use-community-art";
 import { useLanguage } from "@/hooks/use-language";
@@ -598,7 +599,7 @@ function getArtworkCountry(artistName: string, language: Language) {
     "Daria Volkova": "russia"
   };
   const countryId = countryByArtist[artistName] ?? "turkiye";
-  return countryCommunities.find((country) => country.id === countryId)?.name[language] ?? countryId;
+  return getLocalizedCountryName(countryId, language);
 }
 
 function createStyles(colors: ReturnType<typeof getThemeColors>) {

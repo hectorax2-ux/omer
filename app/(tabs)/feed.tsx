@@ -6,6 +6,7 @@ import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import { AdSlot, AppChrome } from "@/components/app-chrome";
 import { TabScreenMountGate } from "@/components/tab-screen-mount-gate";
+import { ScreenDataState } from "@/components/screen-data-state";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { useAds } from "@/hooks/use-ads";
 import { AuthRequired } from "@/components/auth-required";
@@ -75,7 +76,7 @@ function FeedDiscoverContent() {
   const { theme } = useAppTheme();
   const { account, isAuthenticated, canUseMemberFeatures } = useAccount();
   const { adSettings } = useAds();
-  const { commentsByPost, posts, addPost, deletePost, favoriteIds, getPostLimitStatus, hasMorePosts, likedIds, loadMorePosts, loadingMorePosts, toggleFavorite, toggleHidden, toggleLike, updatePost } = useDiscoveryPosts();
+  const { commentsByPost, posts, feedStatus, retryFeed, addPost, deletePost, favoriteIds, getPostLimitStatus, hasMorePosts, likedIds, loadMorePosts, loadingMorePosts, toggleFavorite, toggleHidden, toggleLike, updatePost } = useDiscoveryPosts();
   const { suggestedUsers } = useSocial();
   const colors = getThemeColors(theme);
   const styles = useMemo(() => createStyles(colors, theme), [colors, theme]);
@@ -129,6 +130,14 @@ function FeedDiscoverContent() {
 
   if (!isAuthenticated) {
     return <AuthRequired title={uiCopy.feedDiscover[language]} />;
+  }
+
+  if (!posts.length && feedStatus !== "success") {
+    return (
+      <AppChrome title={uiCopy.feedDiscover[language]} eyebrow="Art Atlas">
+        <ScreenDataState status={feedStatus} onRetry={retryFeed} />
+      </AppChrome>
+    );
   }
 
   function openNewPostModal() {

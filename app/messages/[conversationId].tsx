@@ -92,6 +92,7 @@ function AuthenticatedConversationScreen() {
     unblockUser,
     pendingMessages,
     retryPending,
+    reconcilePending,
     syncError,
     clearSyncError,
     setActiveConversationId,
@@ -142,9 +143,9 @@ function AuthenticatedConversationScreen() {
         clientMessageId: item.clientMessageId,
         deliveryStatus: item.status
       } satisfies DirectMessageRecord));
-    const pendingIds = new Set(pending.map((item) => item.clientMessageId));
-    const confirmed = (threadReady ? messages : []).filter((item) => !pendingIds.has(item.clientMessageId));
-    return [...pending.reverse(), ...confirmed];
+    const confirmed = threadReady ? messages : [];
+    const serverIds = new Set(confirmed.map((item) => item.clientMessageId));
+    return [...pending.filter((item) => !serverIds.has(item.clientMessageId)).reverse(), ...confirmed];
   }, [account.uid, conversationId, messages, pendingMessages, threadReady]);
   const canSeeReadReceipts = account.isPremium || account.isAdmin;
   const isBlockedConversation = conversation?.status === "blocked";
@@ -230,6 +231,7 @@ function AuthenticatedConversationScreen() {
           ? items.filter((item) => item.createdAtMs > historyClearedAtMs)
           : items;
         setMessages(visible);
+        reconcilePending(visible.map((item) => item.clientMessageId));
         void saveResourceCache(`messages:thread:${conversationId}`, visible);
         setReachedStart(meta.reachedStart);
         setInitialLoaded(true);
@@ -245,7 +247,7 @@ function AuthenticatedConversationScreen() {
       },
       messageLimit
     );
-  }, [conversationId, hideMessages, historyClearedAtMs, language, messageLimit, threadReady]);
+  }, [conversationId, hideMessages, historyClearedAtMs, language, messageLimit, reconcilePending, threadReady]);
 
   useFocusEffect(
     useCallback(() => {
@@ -282,7 +284,6 @@ function AuthenticatedConversationScreen() {
       text: outgoing
     }).then((result) => {
       if (result.ok) return;
-      setText((current) => current.trim() ? current : outgoing);
       if (result.message) setLocalError(result.message);
       if (result.premiumUpsell) setPremiumModal(true);
     });
@@ -474,9 +475,9 @@ function AuthenticatedConversationScreen() {
               {mine && item.deliveryStatus === "sending" ? (
                 <View style={styles.statusRow}>
                   <Ionicons name="time-outline" size={12} color={colors.muted} />
-                  <Text style={styles.statusText}>{language === "tr" ? "Gönderiliyor" : "Sending"}</Text>
                 </View>
               ) : null}
+              {mine && item.deliveryStatus === "sent" && !item.readAtMs ? <Ionicons name="checkmark" size={12} color={colors.muted} style={styles.sentIcon} /> : null}
               {mine && item.deliveryStatus === "failed" ? (
                 <View style={styles.statusRow}>
                   <Ionicons name="alert-circle-outline" size={12} color="#d92d20" />
@@ -696,7 +697,7 @@ function createStyles(colors: ReturnType<typeof getThemeColors>) {
     bubbleText: { color: colors.ivory, lineHeight: 21, fontSize: 15 },
     bubbleTextMine: { color: "#15120d", fontWeight: "600" },
     statusRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4, alignSelf: "flex-end" },
-    statusText: { color: "rgba(21,18,13,0.65)", fontSize: 11 },
+    sentIcon: { marginTop: 4, alignSelf: "flex-end" },
     statusFailed: { color: "#7a1010", fontSize: 11, fontWeight: "700" },
     readReceipt: { color: "rgba(21,18,13,0.6)", fontSize: 11, marginTop: 3, textAlign: "right" },
     composer: { flexDirection: "row", gap: 8, alignItems: "flex-end", marginTop: 10, marginHorizontal: 14, padding: 7, borderWidth: 1, borderColor: colors.line, borderRadius: 30, backgroundColor: colors.panelSoft, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 5 },

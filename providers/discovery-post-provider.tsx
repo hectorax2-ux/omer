@@ -92,6 +92,8 @@ type NewPost = Omit<DiscoveryPost, "id" | "language" | "likes" | "createdAt"> & 
 
 type DiscoveryPostContextValue = {
   posts: DiscoveryPost[];
+  feedStatus: "loading" | "success" | "error";
+  retryFeed: () => void;
   commentsByPost: Record<string, DiscoveryComment[]>;
   likedIds: string[];
   favoriteIds: string[];
@@ -112,6 +114,8 @@ type DiscoveryPostContextValue = {
 
 export const DiscoveryPostContext = createContext<DiscoveryPostContextValue>({
   posts: [],
+  feedStatus: "loading",
+  retryFeed: () => undefined,
   commentsByPost: {},
   likedIds: [],
   favoriteIds: [],
@@ -139,6 +143,8 @@ export function DiscoveryPostProvider({ children }: PropsWithChildren) {
   const feedNetworkReady = startupPhase !== "critical" || pathname.startsWith("/feed") || pathname.startsWith("/post");
   const needsPostDetails = pathname.startsWith("/feed") || pathname.startsWith("/post") || pathname.startsWith("/profile");
   const [posts, setPosts] = useState<DiscoveryPost[]>(() => peekResourceCache<DiscoveryPost[]>(PUBLIC_POST_CACHE_KEY) ?? []);
+  const [feedStatus, setFeedStatus] = useState<"loading" | "success" | "error">(() => peekResourceCache<DiscoveryPost[]>(PUBLIC_POST_CACHE_KEY) ? "success" : "loading");
+  const [feedRetry, setFeedRetry] = useState(0);
   const [commentsByPost, setCommentsByPost] = useState<Record<string, DiscoveryComment[]>>({});
   const [commentTimestamps, setCommentTimestamps] = useState<Record<string, number>>({});
   const [likedIds, setLikedIds] = useState<string[]>([]);
@@ -203,6 +209,7 @@ export function DiscoveryPostProvider({ children }: PropsWithChildren) {
     void loadResourceCache(PUBLIC_POST_CACHE_KEY, isDiscoveryPostArray).then((cached) => {
       if (active && cached) {
         mergeRemotePosts(cached);
+        setFeedStatus("success");
         markPerformanceEvent("CACHE_CONTENT_VISIBLE", { resource: "discover", source: "disk", count: cached.length });
       }
     });
@@ -216,6 +223,7 @@ export function DiscoveryPostProvider({ children }: PropsWithChildren) {
     const unsubscribe = subscribePublishedPosts(
       PUBLISHED_POSTS_PAGE_SIZE,
       (page) => {
+        setFeedStatus("success");
         postsPageCursorRef.current = page.cursor;
         setHasMorePosts(page.hasMore);
         const mapped = page.posts.map(mapPostDocument);
@@ -227,6 +235,7 @@ export function DiscoveryPostProvider({ children }: PropsWithChildren) {
         if (__DEV__) console.warn("[posts] realtime feed subscription failed", error);
         listAllFeedPostsFallback(200)
           .then((remotePosts) => {
+            setFeedStatus("success");
             if (!remotePosts.length) return;
             const mapped = remotePosts.map(mapPostDocument);
             mergeRemotePosts(mapped);
@@ -236,11 +245,18 @@ export function DiscoveryPostProvider({ children }: PropsWithChildren) {
           })
           .catch((fallbackError) => {
             if (__DEV__) console.warn("[posts] realtime fallback failed", fallbackError);
+            setFeedStatus((current) => current === "success" ? "success" : "error");
           });
       }
     );
     return unsubscribe;
-  }, [feedNetworkReady, mergeRemotePosts]);
+  }, [feedNetworkReady, feedRetry, mergeRemotePosts]);
+
+  useEffect(() => {
+    if (feedStatus !== "error" || !feedNetworkReady) return undefined;
+    const retry = setTimeout(() => setFeedRetry((current) => current + 1), 8000);
+    return () => clearTimeout(retry);
+  }, [feedNetworkReady, feedStatus]);
 
   useEffect(() => {
     if (!account.uid) return;
@@ -448,6 +464,11 @@ export function DiscoveryPostProvider({ children }: PropsWithChildren) {
   const value = useMemo(
     () => ({
       posts: visiblePosts,
+      feedStatus,
+      retryFeed: () => {
+        setFeedStatus(posts.length ? "success" : "loading");
+        setFeedRetry((current) => current + 1);
+      },
       commentsByPost: visibleCommentsByPost,
       likedIds,
       favoriteIds,
@@ -720,7 +741,7 @@ export function DiscoveryPostProvider({ children }: PropsWithChildren) {
         return { ok: true };
       }
     }),
-    [account, canUseMemberFeatures, commentTimestamps, commentsByPost, favoriteIds, firebaseEnabled, hasMorePosts, language, likedIds, loadMorePosts, loadingMorePosts, mergeRemotePosts, postTimestamps, posts, refreshPostLikeCount, visibleCommentsByPost, visiblePosts]
+    [account, canUseMemberFeatures, commentTimestamps, commentsByPost, favoriteIds, feedStatus, firebaseEnabled, hasMorePosts, language, likedIds, loadMorePosts, loadingMorePosts, mergeRemotePosts, postTimestamps, posts, refreshPostLikeCount, visibleCommentsByPost, visiblePosts]
   );
 
   return <DiscoveryPostContext.Provider value={value}>{children}</DiscoveryPostContext.Provider>;

@@ -1,10 +1,11 @@
 import { collection, documentId, getDocsFromServer, limit, orderBy, query, startAfter, type QueryDocumentSnapshot } from "firebase/firestore";
 import { BadgeId, UserRoleId } from "@/constants/profile-taxonomy";
 import { firestoreDb } from "./core";
-import { findCountryByInput } from "@/utils/country-utils";
+import { findCountryByCode, findCountryByInput } from "@/utils/country-utils";
 import { isPremiumDataActive } from "@/utils/premium-status";
 
-export const PROFILE_DISCOVERY_PAGE_SIZE = 16;
+export const PROFILE_DISCOVERY_PAGE_SIZE = 20;
+export const PROFILE_DISCOVERY_SESSION_LIMIT = 100;
 
 export type SuggestedUser = {
   uid?: string;
@@ -17,6 +18,7 @@ export type SuggestedUser = {
   isDisabled?: boolean;
   isAdmin?: boolean;
   isProfileVisible?: boolean;
+  showInCountryExplore?: boolean;
   country?: string;
   countryId?: string;
   countryCode?: string;
@@ -52,7 +54,9 @@ export function mapProfileDiscoveryUser(uid: string, data: Record<string, unknow
   const username = typeof data.username === "string" ? data.username.trim().replace(/^@+/, "") : "";
   if (!uid || !username || data.deleted === true || data.accountDeleted === true || data.isDeleted === true) return undefined;
   const country = typeof data.country === "string" && data.country.trim() ? data.country.trim() : undefined;
-  const countryMatch = country ? findCountryByInput(country) : null;
+  const countryCode = typeof data.countryCode === "string" && data.countryCode.trim() ? data.countryCode.trim().toUpperCase() : undefined;
+  const countryMatch = findCountryByCode(countryCode) ?? (country ? findCountryByInput(country) : null)
+    ?? (typeof data.countryId === "string" ? findCountryByInput(data.countryId) : null);
   const badges = Array.from(new Set([
     ...readBadges(data.badges),
     ...readBadges(data.systemBadges),
@@ -69,9 +73,10 @@ export function mapProfileDiscoveryUser(uid: string, data: Record<string, unknow
     isDisabled: data.isDisabled === true,
     isAdmin: data.role === "admin",
     isProfileVisible: data.isProfileVisible !== false,
+    showInCountryExplore: data.showInCountryExplore !== false,
     country,
-    countryId: typeof data.countryId === "string" && data.countryId.trim() ? data.countryId.trim() : countryMatch?.id,
-    countryCode: typeof data.countryCode === "string" && data.countryCode.trim() ? data.countryCode.trim().toUpperCase() : countryMatch?.code,
+    countryId: countryMatch?.id,
+    countryCode: countryMatch?.code,
     language: mapFirestoreLanguage(data.language),
     lastActiveMinutesAgo: timestampAgeMinutes(data.lastActiveAt ?? data.updatedAt),
     followersCount: typeof data.followersCount === "number" ? Math.max(0, data.followersCount) : 0,
@@ -88,7 +93,7 @@ export function profileDiscoveryErrorDetails(error: unknown) {
     code: "code" in error && typeof error.code === "string" ? error.code : "unknown",
     message: "message" in error && typeof error.message === "string" ? error.message : undefined,
     collection: "users",
-    query: "orderBy(__name__) + cursor + limit(16)"
+    query: "orderBy(__name__) + cursor + limit(20)"
   };
 }
 

@@ -1,6 +1,6 @@
 import { collection, getDocs, limit, query, startAfter, type QueryDocumentSnapshot } from "firebase/firestore";
 import { firestoreDb } from "./core";
-import { resolveCountryCode, resolveCountryId, type CountryIdentity } from "@/utils/country-utils";
+import { getCountryProfileFields, resolveCountryId, type CountryIdentity } from "@/utils/country-utils";
 
 export async function loadCountryDirectory() {
   const identities: CountryIdentity[] = [];
@@ -17,18 +17,18 @@ export async function loadCountryDirectory() {
       const username = typeof data.username === "string" ? data.username.trim() : "";
       if (!username) return;
       const country = typeof data.country === "string" ? data.country.trim() : "";
-      const countryCode = typeof data.countryCode === "string" && data.countryCode.trim()
-        ? data.countryCode.trim().toUpperCase()
-        : resolveCountryCode(country) ?? undefined;
+      const countryFields = getCountryProfileFields({
+        country,
+        countryCode: typeof data.countryCode === "string" ? data.countryCode : "",
+        countryId: typeof data.countryId === "string" ? data.countryId : ""
+      });
       identities.push({
         uid: item.id,
         username,
         name: typeof data.displayName === "string" && data.displayName.trim() ? data.displayName.trim() : username,
-        country: country || undefined,
-        countryId: typeof data.countryId === "string" && data.countryId.trim()
-          ? data.countryId.trim()
-          : resolveCountryId(country),
-        countryCode
+        country: countryFields.country || undefined,
+        countryId: resolveCountryId(countryFields.countryCode),
+        countryCode: countryFields.countryCode || undefined
       });
     });
     if (snapshot.docs.length < batchSize) break;

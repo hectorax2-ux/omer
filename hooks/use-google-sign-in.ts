@@ -4,6 +4,8 @@ import Constants from "expo-constants";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
+import { authErrorCode } from "@/utils/auth-lifecycle";
+import { logAuthStage } from "@/utils/auth-diagnostics";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -76,11 +78,11 @@ export function useGoogleSignIn() {
   });
 
   return {
-    ready: isGoogleSignInConfigured() && (usesNativeGoogleSignIn() || Boolean(request)),
+    ready: isGoogleSignInConfigured() && (Platform.OS === "web" || usesNativeGoogleSignIn() || Boolean(request)),
     configError: getGoogleSignInConfigError(),
-    signIn: async (): Promise<{ idToken?: string; cancelled?: boolean; error?: string }> => {
+    signIn: async (): Promise<{ idToken?: string; cancelled?: boolean; error?: string; code?: string }> => {
       const configError = getGoogleSignInConfigError();
-      if (configError) return { error: configError };
+      if (configError) return { error: configError, code: "auth/operation-not-allowed" };
 
       if (Platform.OS === "web") {
         return { error: "web-popup" };
@@ -100,7 +102,7 @@ export function useGoogleSignIn() {
       }
 
       if (result.type !== "success") {
-        console.warn("[Google Sign In] Expo AuthSession failed.", result);
+        console.warn("[Google Sign In] Expo AuthSession failed.", result.type);
         return { error: "Google ile giriş tamamlanamadı. Lütfen tekrar deneyin." };
       }
 
@@ -128,10 +130,11 @@ export async function signOutGoogleNativeSession() {
 }
 
 async function signInWithNativeGoogle(webClientId: string, iosClientId: string) {
+  logAuthStage("native-provider", "google", "start");
   try {
     const google = await import("react-native-nitro-google-signin");
     configureNativeGoogle(google.GoogleOneTapSignIn, webClientId, iosClientId);
-    await google.GoogleOneTapSignIn.checkPlayServices(true);
+    if (Platform.OS === "android") await google.GoogleOneTapSignIn.checkPlayServices(true);
 
     console.info("[Google Sign In] Starting native create-or-sign-in flow.");
     const savedCredentialResponse = await google.GoogleOneTapSignIn.signIn().catch((error: unknown) => {
@@ -157,6 +160,7 @@ async function signInWithNativeGoogle(webClientId: string, iosClientId: string) 
     const responseIdToken = response.data.idToken?.trim();
     if (responseIdToken) {
       console.info("[Google Sign In] Native Google ID token received.");
+      logAuthStage("native-provider", "google", "success");
       return { idToken: responseIdToken };
     }
 
@@ -171,7 +175,8 @@ async function signInWithNativeGoogle(webClientId: string, iosClientId: string) 
     console.info("[Google Sign In] Refreshed Google ID token received.");
     return { idToken: refreshedIdToken };
   } catch (error) {
-    console.error("[Google Sign In] Native sign-in failed.", error);
+    console.error("[Google Sign In] Native sign-in failed.", authErrorCode(error));
+    logAuthStage("native-provider", "google", "error", error);
     const googleError = error as { code?: string };
 
     if (googleError.code === "SIGN_IN_CANCELLED") {
@@ -179,14 +184,14 @@ async function signInWithNativeGoogle(webClientId: string, iosClientId: string) 
     }
 
     if (googleError.code === "PLAY_SERVICES_NOT_AVAILABLE") {
-      return { error: "Google Play Hizmetleri kullanılamıyor. Lütfen güncelleyip tekrar deneyin." };
+      return { error: "Google Play Hizmetleri kullanılamıyor. Lütfen güncelleyip tekrar deneyin.", code: googleError.code };
     }
 
     if (googleError.code === "DEVELOPER_ERROR") {
-      return { error: "Google giriş yapılandırması doğrulanamadı. Lütfen uygulamayı güncelleyip tekrar deneyin." };
+      return { error: "Google giriş yapılandırması doğrulanamadı. Lütfen uygulamayı güncelleyip tekrar deneyin.", code: googleError.code };
     }
 
-    return { error: "Google ile giriş tamamlanamadı. İnternet bağlantınızı kontrol edip tekrar deneyin." };
+    return { error: "Google ile giriş tamamlanamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.", code: authErrorCode(error) };
   }
 }
 

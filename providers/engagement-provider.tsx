@@ -16,6 +16,7 @@ type Report = {
 
 type EngagementContextValue = {
   favoriteArtworkIds: string[];
+  favoriteNewsIds: string[];
   readArtworkIds: string[];
   artworkVotes: Record<string, Vote>;
   reports: Report[];
@@ -23,6 +24,7 @@ type EngagementContextValue = {
   toggleArtworkRead: (artworkId: string) => void;
   resetReadArtworks: () => void;
   toggleFavorite: (artworkId: string) => void;
+  toggleNewsFavorite: (newsId: string) => void;
   voteArtwork: (artworkId: string, vote: Vote) => void;
   reportProfile: (targetId: string, reason: string) => void;
   reportContent: (targetId: string, reason: string) => void;
@@ -30,6 +32,7 @@ type EngagementContextValue = {
 
 export const EngagementContext = createContext<EngagementContextValue>({
   favoriteArtworkIds: [],
+  favoriteNewsIds: [],
   readArtworkIds: [],
   artworkVotes: {},
   reports: [],
@@ -37,6 +40,7 @@ export const EngagementContext = createContext<EngagementContextValue>({
   toggleArtworkRead: () => undefined,
   resetReadArtworks: () => undefined,
   toggleFavorite: () => undefined,
+  toggleNewsFavorite: () => undefined,
   voteArtwork: () => undefined,
   reportProfile: () => undefined,
   reportContent: () => undefined
@@ -45,6 +49,7 @@ export const EngagementContext = createContext<EngagementContextValue>({
 export function EngagementProvider({ children }: PropsWithChildren) {
   const { account, canUseMemberFeatures } = useAccount();
   const [favoriteArtworkIds, setFavoriteArtworkIds] = useState<string[]>([]);
+  const [favoriteNewsIds, setFavoriteNewsIds] = useState<string[]>([]);
   const [readArtworkIds, setReadArtworkIds] = useState<string[]>([]);
   const [artworkVotes, setArtworkVotes] = useState<Record<string, Vote>>({});
   const [reports, setReports] = useState<Report[]>([]);
@@ -57,6 +62,7 @@ export function EngagementProvider({ children }: PropsWithChildren) {
     let active = true;
     if (!account.uid) {
       setFavoriteArtworkIds([]);
+      setFavoriteNewsIds([]);
       setReadArtworkIds([]);
       setArtworkVotes({});
       return;
@@ -69,6 +75,7 @@ export function EngagementProvider({ children }: PropsWithChildren) {
     ]).then(([favorites, reactions, reads]) => {
       if (!active) return;
       setFavoriteArtworkIds(favorites.filter((item) => item.targetType === "artwork").map((item) => item.targetId));
+      setFavoriteNewsIds(favorites.filter((item) => item.targetType === "news").map((item) => item.targetId));
       setReadArtworkIds(reads.filter((item) => item.targetType === "artwork").map((item) => item.targetId));
       setArtworkVotes(reactions
         .filter((item) => item.targetType === "artwork")
@@ -86,6 +93,7 @@ export function EngagementProvider({ children }: PropsWithChildren) {
   const value = useMemo(
     () => ({
       favoriteArtworkIds,
+      favoriteNewsIds,
       readArtworkIds,
       artworkVotes,
       reports,
@@ -136,6 +144,19 @@ export function EngagementProvider({ children }: PropsWithChildren) {
             : current.filter((id) => id !== artworkId)))
           .finally(() => pendingMutations.current.delete(mutationKey));
       },
+      toggleNewsFavorite: (newsId: string) => {
+        if (!canUseMemberFeatures || !account.uid) return;
+        const mutationKey = `favorite:news:${newsId}`;
+        if (pendingMutations.current.has(mutationKey)) return;
+        const existed = favoriteNewsIds.includes(newsId);
+        pendingMutations.current.add(mutationKey);
+        setFavoriteNewsIds((current) => existed ? current.filter((id) => id !== newsId) : [newsId, ...current]);
+        void (existed ? removeFavorite(account.uid, "news", newsId) : setFavorite(account.uid, "news", newsId))
+          .catch(() => setFavoriteNewsIds((current) => existed
+            ? current.includes(newsId) ? current : [newsId, ...current]
+            : current.filter((id) => id !== newsId)))
+          .finally(() => pendingMutations.current.delete(mutationKey));
+      },
       voteArtwork: (artworkId: string, vote: Vote) => {
         if (!canUseMemberFeatures || !account.uid) return;
         const mutationKey = `vote:${artworkId}`;
@@ -169,7 +190,7 @@ export function EngagementProvider({ children }: PropsWithChildren) {
         setReports((current) => [{ id: `content-report-${Date.now()}`, type: "content", targetId, reason }, ...current]);
       }
     }),
-    [account.uid, artworkVotes, canUseMemberFeatures, favoriteArtworkIds, readArtworkIds, reports]
+    [account.uid, artworkVotes, canUseMemberFeatures, favoriteArtworkIds, favoriteNewsIds, readArtworkIds, reports]
   );
 
   return <EngagementContext.Provider value={value}>{children}</EngagementContext.Provider>;

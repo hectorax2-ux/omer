@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useCountryLookup } from "@/providers/country-lookup-provider";
 import { findUserByUsername } from "@/src/services/firebase/user-service";
 import { invalidateCountryCache, readCachedCountryCode, writeCachedCountryCode } from "@/utils/country-cache";
-import { normalizeCountryLookupKey, resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
+import { normalizeCountryLookupKey, resolveCountryCode, resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
 
 export { invalidateCountryCache };
 
@@ -15,21 +15,20 @@ type ResolveCountryInput = {
 
 export function useResolvedCountryCode(input: ResolveCountryInput) {
   const { lookupCountryCode, upsertIdentity } = useCountryLookup();
-  const fallbackCode = input.countryCode?.trim() ? input.countryCode.trim().toUpperCase() : null;
+  const fallbackCode = resolveCountryCode(input.countryCode ?? "");
   const lookupCode = lookupCountryCode([input.uid, input.username, input.name]);
   const usernameKey = input.username?.trim() ? normalizeCountryLookupKey(input.username) : "";
   const cachedCode = usernameKey ? readCachedCountryCode(usernameKey) : null;
-  const [liveCode, setLiveCode] = useState<string | null>(null);
+  const identityKey = `${input.uid ?? ""}:${usernameKey}`;
+  const readyCode = fallbackCode ?? lookupCode ?? cachedCode;
+  const [resolved, setResolved] = useState<{ key: string; code: string } | null>(null);
 
   useEffect(() => {
-    if (!usernameKey) {
-      setLiveCode(null);
-      return;
-    }
+    if (!usernameKey || readyCode) return;
     let active = true;
     findUserByUsername(usernameKey)
       .then((profile) => {
-        if (!active || !profile) return;
+        if (!active || !profile || (input.uid && profile.uid !== input.uid)) return;
         const code = resolveCountryCodeFromUser({
           country: profile.country,
           countryId: resolveCountryId(profile.country),
@@ -45,13 +44,13 @@ export function useResolvedCountryCode(input: ResolveCountryInput) {
           countryId: resolveCountryId(profile.country),
           countryCode: code
         });
-        setLiveCode(code);
+        setResolved({ key: identityKey, code });
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [upsertIdentity, usernameKey]);
+  }, [identityKey, input.uid, readyCode, upsertIdentity, usernameKey]);
 
-  return liveCode ?? lookupCode ?? cachedCode ?? fallbackCode;
+  return readyCode ?? (resolved?.key === identityKey ? resolved.code : null);
 }

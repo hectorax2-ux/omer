@@ -1,4 +1,4 @@
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { firebaseStorage } from "./core";
 import { ALLOWED_IMAGE_MIME_TYPES, IMAGE_UPLOAD_LIMITS } from "@/src/types/firestore";
 
@@ -30,6 +30,13 @@ export async function uploadImage(path: string, blob: Blob, metadata: ImageUploa
   const storageRef = ref(firebaseStorage, path);
   await uploadBytes(storageRef, blob, { contentType: metadata.mimeType });
   return getDownloadURL(storageRef);
+}
+
+export async function deleteOwnedProfilePhoto(userId: string, url: string): Promise<void> {
+  if (!url) return;
+  const storageRef = ref(firebaseStorage, url);
+  if (!storageRef.fullPath.startsWith(`users/${userId}/profile/`)) return;
+  await deleteObject(storageRef);
 }
 
 export function museumCoverPath(userId: string, fileName: string) {

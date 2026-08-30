@@ -30,8 +30,9 @@ export function appleFullName(credential: AppleAuthenticationCredential) {
 }
 
 export function isAppleCancelError(error: unknown) {
-  const maybeError = error as { code?: string; message?: string };
-  const message = maybeError.message ?? "";
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; message?: unknown };
+  const message = typeof maybeError.message === "string" ? maybeError.message.toLowerCase() : "";
   return maybeError.code === "ERR_REQUEST_CANCELED" || message.includes("canceled") || message.includes("cancelled");
 }
 

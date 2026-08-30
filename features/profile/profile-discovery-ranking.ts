@@ -1,4 +1,5 @@
 import type { SuggestedUser } from "@/src/services/firebase/profile-discovery-service";
+import { resolveCountryCode, resolveCountryCodeFromUser } from "@/utils/country-utils";
 
 export function rankProfileDiscoveryUsers(
   users: SuggestedUser[],
@@ -8,6 +9,8 @@ export function rankProfileDiscoveryUsers(
   const interests = new Set((options.interests ?? []).map(normalize));
   const now = Date.now();
   const dayKey = options.dayKey ?? new Date(now).toISOString().slice(0, 10);
+  const countryCode = resolveCountryCode(options.countryId);
+  const userCountries = new Map(users.map((user) => [user, resolveCountryCodeFromUser(user)]));
   return [...users].sort((left, right) => {
     const score = (user: SuggestedUser) => {
       const completeness = Number(Boolean(user.image)) + Number(Boolean(user.bio)) + Number(Boolean(user.countryId || user.country));
@@ -19,7 +22,7 @@ export function rankProfileDiscoveryUsers(
         + activity
         + newMember
         + Math.max(0, 16 - Math.log2((user.followersCount ?? 0) + 1) * 3)
-        + (options.countryId && user.countryId ? user.countryId === options.countryId ? 3 : 9 : 0)
+        + (countryCode && userCountries.get(user) ? userCountries.get(user) === countryCode ? 3 : 9 : 0)
         + sharedInterests * 6
         + dailyFairness(user.uid || user.username, dayKey);
     };

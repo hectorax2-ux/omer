@@ -25,7 +25,6 @@ import { NotificationDocument } from "@/src/types/firestore";
 import {
   castOrChangeDuelVote,
   createPersonalMuseumDocument,
-  createTimeCapsuleDocument,
   upsertProphecyPrediction,
   getDuelVote,
   getChanceCardDraw,
@@ -45,12 +44,13 @@ import {
   TimeCapsuleDocument,
   updatePersonalMuseumDocument
 } from "@/src/services/firebase/art-systems-service";
+import { submitArtistLetterRemote } from "@/src/services/firebase/artist-letter-service";
 import { openChanceCard } from "@/src/services/firebase/chance-card-service";
 import { hasExpiredActiveDuel, requestDuelRotationCatchUp } from "@/src/services/firebase/duel-automation-service";
 import { listUserNotifications, markNotificationRead, notificationVisibleInApp } from "@/src/services/firebase/notification-service";
 import { duelCopy } from "@/app/i18n/duels";
 import { msg, msgFormat, systemMessages } from "@/app/i18n/system-messages";
-import { getArtistLetterDayKey, getNextArtistLetterResetAt, isSameArtistLetterWindow } from "@/utils/artist-letter-window";
+import { getNextArtistLetterResetAt, isSameArtistLetterWindow } from "@/utils/artist-letter-window";
 import { isOwnedMuseum, isOwnedTimeCapsule } from "@/utils/user-identity";
 import {
   formatProphecyCountdown,
@@ -508,7 +508,7 @@ export function ArtSystemsProvider({ children }: PropsWithChildren) {
             uid: account.uid,
             role: account.role,
             country: account.country,
-            countryCode: resolveCountryCode(account.country) ?? undefined,
+            countryCode: account.countryCode ?? resolveCountryCode(account.country) ?? undefined,
             isPremium: account.isPremium,
             badges: account.badges,
             staffBadges: account.staffBadges
@@ -523,7 +523,7 @@ export function ArtSystemsProvider({ children }: PropsWithChildren) {
             uid: account.uid,
             role: account.role,
             country: account.country,
-            countryCode: resolveCountryCode(account.country) ?? undefined,
+            countryCode: account.countryCode ?? resolveCountryCode(account.country) ?? undefined,
             isPremium: account.isPremium,
             badges: account.badges,
             staffBadges: account.staffBadges
@@ -547,7 +547,7 @@ export function ArtSystemsProvider({ children }: PropsWithChildren) {
       unsubscribe();
       unsubscribeReads();
     };
-  }, [account.badges, account.country, account.isPremium, account.role, account.staffBadges, account.uid, language, notificationNetworkReady]);
+  }, [account.badges, account.country, account.countryCode, account.isPremium, account.role, account.staffBadges, account.uid, language, notificationNetworkReady]);
 
   const notifications = useMemo<ArtSystemsNotification[]>(() => {
     const readIds = new Set([...remoteReadNotificationIds, ...optimisticReadNotificationIds]);
@@ -944,19 +944,14 @@ export function ArtSystemsProvider({ children }: PropsWithChildren) {
       }
       const createdAt = new Date().toISOString();
       const deliverAt = getNextArtistLetterResetAt().toISOString();
-      return createTimeCapsuleDocument({
-        uid: account.uid,
-        ownerId: account.uid,
-        ownerUsername: account.username,
-        noteEncrypted: trimmed,
+      return submitArtistLetterRemote({
+        note: trimmed,
         title,
         artistId,
         artistName,
-        deliverAt,
-        active: true,
-        opened: false,
-        dayKey: getArtistLetterDayKey(createdAt)
-      }).then((savedId) => {
+        language,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+      }).then(({ id: savedId }) => {
         setTimeCapsules((current) => [{
           id: savedId,
           ownerId: account.uid,
@@ -968,7 +963,9 @@ export function ArtSystemsProvider({ children }: PropsWithChildren) {
           createdAt,
           deliverAt,
           active: true,
-          opened: false
+          opened: false,
+          status: "submitted",
+          language
         }, ...current]);
         return { ok: true, message: msg(systemMessages.timeCapsule.scheduled, language) };
       }).catch((error) => {
@@ -1184,9 +1181,16 @@ function mapTimeCapsuleDocument(doc: TimeCapsuleDocument): TimeCapsule {
     opened: Boolean(doc.opened),
     reply: reply || undefined,
     repliedAt: toIsoDateString(doc.repliedAt) || undefined,
+    answeredAt: toIsoDateString(doc.answeredAt) || undefined,
+    answeredBy: typeof doc.answeredBy === "string" ? doc.answeredBy : undefined,
+    replyLanguage: doc.replyLanguage,
+    language: doc.language,
+    status: doc.status,
     title: typeof doc.title === "string" ? doc.title : undefined,
     artistId: typeof doc.artistId === "string" ? doc.artistId : undefined,
-    artistName: typeof doc.artistName === "string" ? doc.artistName : undefined
+    artistName: typeof doc.artistName === "string" ? doc.artistName : undefined,
+    artistYears: typeof doc.artistYears === "string" ? doc.artistYears : undefined,
+    artistImage: typeof doc.artistImage === "string" ? doc.artistImage : undefined
   };
 }
 

@@ -1,4 +1,12 @@
-import { countryOptions } from "@/utils/country-options";
+import { countryOptions, type CountryOption } from "@/utils/country-options";
+import type { Language } from "@/types/content";
+
+const countryLocales: Record<Language, string> = {
+  tr: "tr-TR",
+  en: "en-US",
+  ru: "ru-RU",
+  uz: "uz-UZ"
+};
 
 export function normalizeCountryInput(value: string) {
   return value
@@ -8,8 +16,15 @@ export function normalizeCountryInput(value: string) {
     .replaceAll("İ", "i")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[ʻʼ‘’']/g, "")
     .replace(/[^\p{L}\p{N}]/gu, "");
 }
+
+const countryIndex = countryOptions.map((country) => ({
+  country,
+  terms: [country.code, country.id, ...Object.values(country.name), ...country.aliases].map(normalizeCountryInput)
+}));
+const sortedCountries = new Map<Language, CountryOption[]>();
 
 export function findCountryByInput(value: string) {
   const normalized = normalizeCountryInput(value);
@@ -17,17 +32,42 @@ export function findCountryByInput(value: string) {
     return null;
   }
 
-  return countryOptions.find((country) => {
-    const names = [
-      country.code,
-      country.id,
-      country.name.tr,
-      country.name.en,
-      country.name.ru,
-      country.name.uz
-    ];
-    return names.some((name) => normalizeCountryInput(name) === normalized);
-  }) ?? null;
+  return countryIndex.find((entry) => entry.terms.includes(normalized))?.country ?? null;
+}
+
+export function findCountryByCode(code?: string | null) {
+  if (!code?.trim()) return null;
+  const normalized = code.trim().toUpperCase();
+  return countryOptions.find((country) => country.code === normalized) ?? null;
+}
+
+export function getLocalizedCountryName(value: string | undefined | null, language: Language) {
+  if (!value?.trim()) return "";
+  return findCountryByCode(value)?.name[language] ?? findCountryByInput(value)?.name[language] ?? value.trim();
+}
+
+export function getSortedCountryOptions(language: Language) {
+  const cached = sortedCountries.get(language);
+  if (cached) return cached;
+  const collator = new Intl.Collator(countryLocales[language], { sensitivity: "base", usage: "sort" });
+  const sorted = [...countryOptions].sort((left, right) => collator.compare(left.name[language], right.name[language]));
+  sortedCountries.set(language, sorted);
+  return sorted;
+}
+
+export function searchCountries(language: Language, query: string) {
+  const normalized = normalizeCountryInput(query);
+  const sorted = getSortedCountryOptions(language);
+  if (!normalized) return sorted;
+  const matches = new Set(countryIndex.filter((entry) => entry.terms.some((term) => term.includes(normalized))).map((entry) => entry.country.code));
+  return sorted.filter((country) => matches.has(country.code));
+}
+
+export function getCountryProfileFields(input: { country?: string; countryCode?: string; countryId?: string }) {
+  const match = findCountryByCode(input.countryCode)
+    ?? findCountryByInput(input.country ?? "")
+    ?? findCountryByInput(input.countryId ?? "");
+  return { country: match?.name.tr ?? input.country?.trim() ?? "", countryCode: match?.code ?? "" };
 }
 
 export function getCanonicalCountryName(value: string) {
@@ -41,21 +81,12 @@ export function resolveCountryId(value?: string) {
 
 export function resolveCountryCode(value?: string) {
   if (!value?.trim()) return null;
-  const match = findCountryByInput(value);
-  if (match) return match.code;
-  const trimmed = value.trim().toUpperCase();
-  if (/^[A-Z]{2,3}$/.test(trimmed)) return trimmed;
-  return null;
+  return findCountryByInput(value)?.code ?? null;
 }
 
 export function resolveCountryCodeFromUser(user?: { country?: string; countryId?: string; countryCode?: string }) {
   if (!user) return null;
-  if (user.countryCode?.trim()) return user.countryCode.trim().toUpperCase();
-  if (user.countryId) {
-    const match = countryOptions.find((country) => country.id === user.countryId);
-    if (match) return match.code;
-  }
-  return resolveCountryCode(user.country);
+  return getCountryProfileFields(user).countryCode || null;
 }
 
 export type CountryIdentity = {

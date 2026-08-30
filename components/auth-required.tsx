@@ -9,6 +9,8 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
 import { useAccount } from "@/hooks/use-account";
 import { v2Colors } from "@/constants/design";
+import { MembershipIntro } from "@/components/membership-intro";
+import { ScreenDataState } from "@/components/screen-data-state";
 
 export function AuthRequired({ title }: { title?: string }) {
   const { language } = useLanguage();
@@ -16,6 +18,7 @@ export function AuthRequired({ title }: { title?: string }) {
   const colors = getThemeColors(theme);
   const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
+  const { authLoading } = useAccount();
 
   return (
     <AppChrome title={title ?? copy.account[language]} eyebrow={{
@@ -23,27 +26,16 @@ export function AuthRequired({ title }: { title?: string }) {
       en: "Account required",
       ru: "Требуется аккаунт",
       uz: "A'zolik kerak"
-    }[language]}>
-      <View style={styles.panel}>
-        <Ionicons name="lock-closed" size={42} color={v2Colors.primary} />
-        <Text style={styles.title}>{{
-          tr: "Üyelik girişi gerekli",
-          en: "Member login required",
-          ru: "Нужен вход в аккаунт",
-          uz: "A'zo sifatida kirish kerak"
-        }[language]}</Text>
-        <Text style={styles.text}>
-          {{
-            tr: "Bu alanı kullanmak için giriş yapmalı ya da yeni üyelik oluşturmalısın.",
-            en: "Log in or create an account to use this area.",
-            ru: "Чтобы использовать этот раздел, войдите или создайте аккаунт.",
-            uz: "Bu bo'limdan foydalanish uchun kiring yoki yangi hisob yarating."
-          }[language]}
-        </Text>
-        <Pressable onPress={() => router.push("/(tabs)/account")} style={styles.button}>
-          <Text style={styles.buttonText}>{uiCopy.loginRegister[language]}</Text>
+    }[language]} showTopAd={false} showFloatingShortcuts={false}>
+      {authLoading ? <ScreenDataState status="loading" /> : <View style={styles.gate}>
+        <MembershipIntro gated />
+        <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: "/(tabs)/account", params: { authMode: "login" } })} style={styles.gatePrimary}>
+          <Text style={[styles.gateButtonText, { color: colors.ink }]}>{uiCopy.logIn[language]}</Text>
         </Pressable>
-      </View>
+        <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: "/(tabs)/account", params: { authMode: "register" } })} style={styles.gateSecondary}>
+          <Text style={[styles.gateButtonText, { color: colors.ivory }]}>{uiCopy.newAccount[language]}</Text>
+        </Pressable>
+      </View>}
     </AppChrome>
   );
 }
@@ -98,6 +90,10 @@ export function EmailVerificationRequired({ title }: { title?: string }) {
 
 function createStyles(colors: ReturnType<typeof getThemeColors>) {
 return StyleSheet.create({
+  gate: { maxWidth: 520, width: "100%", alignSelf: "center", paddingTop: 12, gap: 10 },
+  gatePrimary: { minHeight: 52, backgroundColor: colors.gold, borderRadius: 12, alignItems: "center", justifyContent: "center", padding: 12 },
+  gateSecondary: { minHeight: 52, backgroundColor: colors.panel, borderColor: colors.line, borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", padding: 12 },
+  gateButtonText: { fontSize: 15, lineHeight: 21, fontWeight: "600", textAlign: "center" },
   panel: {
     minHeight: 260,
     borderRadius: 22,

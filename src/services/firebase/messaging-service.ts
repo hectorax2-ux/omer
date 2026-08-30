@@ -109,13 +109,13 @@ export function subscribeUserBlocks(userId: string, onChange: (items: UserBlockR
   );
 }
 
-export function subscribeConversations(userId: string, onChange: (items: ConversationRecord[]) => void): Unsubscribe {
+export function subscribeConversations(userId: string, onChange: (items: ConversationRecord[]) => void, onError?: () => void): Unsubscribe {
   return onSnapshot(
     query(collection(firestoreDb, "conversations"), where("participantIds", "array-contains", userId), orderBy("lastMessageAt", "desc"), limit(100)),
     (snapshot) => {
       onChange(snapshot.docs.map((item) => mapConversation(item.id, item.data() as Record<string, unknown>)));
     },
-    () => onChange([])
+    () => onError?.()
   );
 }
 

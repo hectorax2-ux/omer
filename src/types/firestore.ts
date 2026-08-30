@@ -40,10 +40,76 @@ export type ContentType =
   | "quiz"
   | "bookFilm"
   | "artStory"
+  | "news"
   | "ad"
   | "profile";
 
 export type LocalizedString = Partial<Record<LanguageCode, string>>;
+
+export type ArtNewsStatus = "draft" | "published" | "scheduled" | "archived";
+
+export type ArtNewsContentBlock = {
+  id: string;
+  type: "paragraph" | "heading" | "image" | "quote" | "divider";
+  text?: LocalizedString;
+  imageUrl?: string;
+  caption?: LocalizedString;
+};
+
+export type ArtNewsTranslation = {
+  title: string;
+  headlineTitle: string;
+  excerpt: string;
+  content: string;
+};
+
+export type ArtNewsDocument = BaseDocument & {
+  slug: string;
+  status: ArtNewsStatus;
+  categoryId: string;
+  categoryLabel?: LocalizedString;
+  translations?: Partial<Record<LanguageCode, ArtNewsTranslation>>;
+  title: LocalizedString;
+  headlineTitle?: LocalizedString;
+  spot: LocalizedString;
+  body: LocalizedString;
+  coverImage: string;
+  coverThumbnail?: string;
+  coverMedium?: string;
+  thumbnailImage?: string;
+  imageFocalPoint?: ImageFocus;
+  imageCaption?: LocalizedString;
+  author: string;
+  readingMinutes: number;
+  featured: boolean;
+  headlineOrder: number;
+  pinned?: boolean;
+  pinOrder?: number;
+  ticker?: boolean;
+  showInLatest?: boolean;
+  showInFeed?: boolean;
+  publishedAt: FirestoreTimestamp;
+  scheduledAt?: FirestoreTimestamp;
+  contentBlocks?: ArtNewsContentBlock[];
+  relatedArtistIds?: string[];
+  relatedArtworkIds?: string[];
+  relatedMuseumIds?: string[];
+  relatedNewsIds?: string[];
+  location?: string;
+  sourceNote?: string;
+  authorId?: string;
+  authorName?: string;
+  timezone?: string;
+  createdBy?: string;
+  updatedBy?: string;
+};
+
+export type ArtNewsCategoryDocument = BaseDocument & {
+  slug: string;
+  label: LocalizedString;
+  active: boolean;
+  order: number;
+};
 
 export type BaseDocument = {
   id: string;
@@ -56,6 +122,8 @@ export type UserProfileDocument = BaseDocument & {
   username: string;
   displayName: string;
   photoURL: string;
+  avatarType?: "uploaded" | "artist" | "default";
+  avatarArtistId?: string;
   role: UserRole;
   appRole?: UserRole;
   country: string;

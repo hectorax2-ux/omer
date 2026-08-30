@@ -15,7 +15,6 @@ import { ImagePreviewModal } from "@/components/image-preview-modal";
 import { CommunityArtworkPreviewFooter } from "@/components/community-artwork-preview-footer";
 import { BadgeId, getBadgeItem, getRoleIcon, getRoleLabel, UserRoleId } from "@/constants/profile-taxonomy";
 import { getThemeColors } from "@/constants/theme";
-import { copy, countryCommunities } from "@/data/content";
 import { useAccount } from "@/hooks/use-account";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useCommunityArt } from "@/hooks/use-community-art";
@@ -32,7 +31,7 @@ import { belongsToProfileArtwork, belongsToProfileMuseum, belongsToProfilePost, 
 import { profileRouteParam } from "@/utils/profile-route";
 import { isPremiumDataActive } from "@/utils/premium-status";
 import { imageSource } from "@/utils/image-source";
-import { resolveCountryCode, resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
+import { getLocalizedCountryName, resolveCountryCode, resolveCountryCodeFromUser, resolveCountryId } from "@/utils/country-utils";
 import { findUserByIdentity, getUserDocumentFromServer, setUserSuspensionStatus, subscribeUserProfile } from "@/src/services/firebase/user-service";
 import { UserProfileDocument } from "@/src/types/firestore";
 import { msg, systemMessages } from "@/app/i18n/system-messages";
@@ -176,15 +175,12 @@ export default function MemberProfileScreen() {
   const bestNet = artworks.reduce((best, item) => Math.max(best, item.likes - item.dislikes), 0);
   const profileRole = isCurrentAccount ? account.role : resolvedProfileUser?.role ?? "art_lover";
   const roleLabel = getRoleLabel(profileRole, language);
-  const profileLocation = isCurrentAccount
-    ? [account.city, account.country].filter(Boolean).join(", ")
-    : resolvedProfileUser?.city && resolvedProfileUser.country
-      ? `${resolvedProfileUser.city}, ${resolvedProfileUser.country}`
-      : resolvedProfileUser?.countryId
-        ? countryCommunities.find((country) => country.id === resolvedProfileUser.countryId)?.name[language] ?? ""
-        : resolvedProfileUser?.country ?? "";
+  const localizedProfileCountry = isCurrentAccount
+    ? getLocalizedCountryName(resolveCountryCodeFromUser(account) ?? account.country, language)
+    : getLocalizedCountryName(resolveCountryCodeFromUser(resolvedProfileUser ?? undefined) ?? resolvedProfileUser?.country, language);
+  const profileLocation = [isCurrentAccount ? account.city : resolvedProfileUser?.city, localizedProfileCountry].filter(Boolean).join(", ");
   const profileCountryCode = isCurrentAccount
-    ? resolveCountryCode(account.country)
+    ? account.countryCode ?? resolveCountryCode(account.country)
     : resolveCountryCodeFromUser(resolvedProfileUser);
   const isPremiumProfile = isCurrentAccount ? account.isPremium : !!resolvedProfileUser?.isPremium;
   const badges = getProfileBadges(profileRole, isCurrentAccount ? account.totalScore : bestNet * 20, bestNet, language, isPremiumProfile, (isCurrentAccount ? account.badges : resolvedProfileUser?.badges)?.filter((badge) => badge !== "premium"));
@@ -616,7 +612,7 @@ export default function MemberProfileScreen() {
         {isCurrentAccount ? (
           <>
             <View style={styles.compactProfileMetaRow}>
-              <InfoPill icon="location-outline" text={`${account.city}, ${account.country}`} />
+              <InfoPill icon="location-outline" text={[account.city, localizedProfileCountry].filter(Boolean).join(", ")} />
               <SocialIconRow links={account.socialLinks} styles={styles} colors={colors} onPress={() => setSocialLinksOpen(true)} language={language} />
             </View>
           </>
@@ -907,7 +903,7 @@ function mapRemoteProfileUser(doc: UserProfileDocument) {
     bio: doc.bio,
     city: doc.city,
     country: doc.country,
-    countryId: resolveCountryId(doc.country),
+    countryId: resolveCountryId(resolveCountryCodeFromUser(doc) ?? doc.country),
     countryCode: doc.countryCode,
     socialLinks: doc.socialLinks,
     isPremium: isPremiumDataActive(doc),
