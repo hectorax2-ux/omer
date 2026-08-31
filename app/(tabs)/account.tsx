@@ -53,7 +53,8 @@ import { compressArtworkImage } from "@/utils/image-compression";
 import { uploadFormatHint, validatePickedImageAsset } from "@/utils/image-upload-validation";
 import { imageSource } from "@/utils/image-source";
 import { buildLimitStatusText, buildRateLimitMessage, throttleAction, withinBurstLimit } from "@/utils/safety";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { TabActions, useIsFocused, useNavigation } from "@react-navigation/native";
 import { getLocalizedCountryName, resolveCountryCode, resolveCountryId } from "@/utils/country-utils";
 import { isAppleCancelError, requestAppleSignInCredential } from "@/utils/apple-auth";
@@ -81,7 +82,7 @@ function AccountContent() {
   const navigation = useNavigation();
   const authNavigation = useRef(createAuthNavigationIntent());
   const { language } = useLanguage();
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const styles = useAccountStyles();
   const { width } = useWindowDimensions();
   const { theme } = useAppTheme();
@@ -1162,7 +1163,7 @@ function AuthGoogleSignInButton({
 
     await runAuthAction(async () => {
       const googleResult = await googleSignIn.signIn();
-      if (googleResult.cancelled) return { ok: false, message: "" };
+      if (googleResult.cancelled) return { ok: false, message: getAuthErrorMessage({ code: "google/sign-in-not-completed" }, language, true) };
       if (!googleResult.idToken) return { ok: false, message: getAuthErrorMessage({ code: googleResult.code }, language, true) };
       return signInWithGoogle(googleResult.idToken);
     });
@@ -1177,7 +1178,7 @@ function AuthGoogleSignInButton({
 }
 
 function AuthScreen({ language, pendingVerificationEmail, login, register, verifyEmailCode, forgotPassword, signInWithGoogle, signInWithApple, beginAuthNavigation, cancelAuthNavigation }: AuthScreenProps) {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const navigation = useNavigation();
   const params = useLocalSearchParams<{ authMode?: string }>();
   const styles = useAccountStyles();

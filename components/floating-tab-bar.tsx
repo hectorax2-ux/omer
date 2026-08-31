@@ -78,13 +78,17 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
         return;
       }
       if (focused) {
+        setOptimisticRouteKey(null);
         if (transitionRequest.current !== null) completeNavigationTransition(transitionRequest.current);
         transitionRequest.current = null;
         return;
       }
       markPerformanceEvent("NAV_ACTION_DISPATCH", { route: route.name });
+      showImmediateSelection(route.key);
+      transitionRequest.current = beginNavigationTransition(navigationLocationKey(pathname, params), compactLabel);
       try {
         navigation.navigate(route.name, route.params);
+        beginNavigationPerformanceLock();
       } catch (error) {
         setOptimisticRouteKey(null);
         if (transitionRequest.current !== null) completeNavigationTransition(transitionRequest.current);
@@ -95,12 +99,10 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
     }
 
     return (
-      <Pressable accessibilityRole="tab" accessibilityLabel={compactLabel} accessibilityState={{ selected }} key={route.key} onPressIn={() => {
-        if (focused) return;
-        beginNavigationPerformanceLock();
-        showImmediateSelection(route.key);
-        transitionRequest.current = beginNavigationTransition(navigationLocationKey(pathname, params), compactLabel);
-      }} onPress={onPress} style={styles.tab}>
+      <Pressable accessibilityRole="tab" accessibilityLabel={compactLabel} accessibilityState={{ selected }} key={route.key}
+        android_ripple={{ color: "rgba(167,139,250,0.3)", borderless: false }}
+        onPressIn={() => markPerformanceEvent("NAV_PRESS_IN", { route: route.name })}
+        onPress={onPress} style={({ pressed }) => [styles.tab, pressed && { opacity: 0.7 }]}>
         {selected ? Platform.OS === "android"
           ? <View style={styles.activePill} />
           : <LinearGradient colors={[v2Colors.primary, v2Colors.violet]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.activePill} />

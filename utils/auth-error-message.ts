@@ -14,6 +14,7 @@ const messages = {
   storage: { tr: "Güvenli oturum kaydedilemiyor. Cihazdaki boş alanı ve tarayıcı depolama iznini kontrol edip yeniden dene.", en: "Your session cannot be saved securely. Check free space and browser storage access, then retry.", ru: "Не удаётся сохранить сеанс. Проверьте свободное место и доступ к хранилищу браузера.", uz: "Sessiyani xavfsiz saqlab bo‘lmayapti. Bo‘sh joy va brauzer xotirasi ruxsatini tekshiring." },
   popup: { tr: "Giriş penceresine izin verip tekrar dene.", en: "Allow the sign-in popup and try again.", ru: "Разрешите всплывающее окно входа и повторите.", uz: "Kirish oynasiga ruxsat berib, qayta urining." },
   token: { tr: "Giriş yetkisi yenilenemedi. Hesabını tekrar seçip dene.", en: "Sign-in could not be verified. Select your account again.", ru: "Не удалось подтвердить вход. Выберите аккаунт заново.", uz: "Kirish tasdiqlanmadi. Hisobingizni qayta tanlang." },
+  googleIncomplete: { tr: "Google ile giriş tamamlanamadı. Tekrar deneyin; sorun sürerse destek ekibine bildirin.", en: "Google sign-in did not complete. Try again; if it persists, contact support.", ru: "Вход через Google не завершён. Повторите попытку или обратитесь в поддержку.", uz: "Google orqali kirish yakunlanmadi. Qayta urining yoki yordamga murojaat qiling." },
   unknown: { tr: "Giriş tamamlanamadı. Tekrar dene; sürerse destek ekibine bildir.", en: "Sign-in could not finish. Try again; if it persists, contact support.", ru: "Не удалось завершить вход. Повторите попытку или обратитесь в поддержку.", uz: "Kirish yakunlanmadi. Qayta urining yoki yordamga murojaat qiling." }
 };
 
@@ -31,6 +32,7 @@ export function getAuthErrorMessage(error: unknown, language: Language, provider
     : code === "auth/persistence-unavailable" || code === "auth/web-storage-unsupported" ? "storage"
     : code === "auth/popup-blocked" ? "popup"
     : ["auth/operation-not-allowed", "auth/unauthorized-domain", "auth/invalid-api-key", "auth/app-not-authorized", "DEVELOPER_ERROR", "PLAY_SERVICES_NOT_AVAILABLE"].includes(code) ? "configuration"
-    : code === "ERR_REQUEST_FAILED" ? "token" : "unknown";
+    : code === "google/sign-in-not-completed" || code === "google/no-credential" ? "googleIncomplete"
+    : code === "ERR_REQUEST_FAILED" || code === "google/missing-id-token" ? "token" : "unknown";
   return messages[key][language];
 }

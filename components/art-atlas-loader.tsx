@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#070A12"
   },
   loadingOverlay: {
-    backgroundColor: "rgba(7, 10, 18, 0.96)"
+    backgroundColor: "#070A12"
   },
   halo: {
     position: "absolute",

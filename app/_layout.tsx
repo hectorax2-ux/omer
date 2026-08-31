@@ -34,6 +34,7 @@ import { AppBootstrapProvider } from "@/providers/bootstrap-provider";
 import { endPerformanceMarker, markPerformanceEvent } from "@/utils/performance";
 import { useStartupPhase } from "@/hooks/use-startup-phase";
 import { NavigationTransitionHost } from "@/components/navigation-transition-host";
+import { logAuthStage } from "@/utils/auth-diagnostics";
 
 markPerformanceEvent("APP_START");
 
@@ -138,6 +139,7 @@ function PushNotificationRegistrar() {
 function NavigationPerformanceObserver() {
   const pathname = usePathname();
   const renderedPathname = useRef("");
+  const { isAuthenticated } = useAccount();
   const navigationReady = useRef(false);
   if (renderedPathname.current !== pathname) {
     renderedPathname.current = pathname;
@@ -149,8 +151,9 @@ function NavigationPerformanceObserver() {
       markPerformanceEvent("NAV_READY", { pathname });
     }
     markPerformanceEvent("NAV_DESTINATION_MOUNTED", { pathname });
+    if (isAuthenticated) logAuthStage("navigation-completed", "session", "success");
     endPerformanceMarker("NAV_TAP", { pathname });
-  }, [pathname]);
+  }, [isAuthenticated, pathname]);
   return null;
 }
 

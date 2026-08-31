@@ -3,7 +3,7 @@ import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, St
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
-import { useRouter } from "expo-router";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { AdSlot, AppChrome } from "@/components/app-chrome";
 import { TabScreenMountGate } from "@/components/tab-screen-mount-gate";
 import { ScreenDataState } from "@/components/screen-data-state";
@@ -344,7 +344,7 @@ function ContributorRow({ item, index, language, styles, colors }: {
   styles: ReturnType<typeof createStyles>;
   colors: ReturnType<typeof getThemeColors>;
 }) {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   return (
     <Pressable onPress={() => router.push({ pathname: "/profile/[name]", params: { name: profileRouteParam({ username: item.username, displayName: item.author, uid: item.authorId }) } })} style={[styles.contributorRow, item.isPremium && styles.premiumContributorRow]}>
       <View style={styles.contributorRank}>
@@ -466,7 +466,7 @@ export function DiscoveryPostCard({ post, authorIsPremium, liked, favorited = fa
   styles: ReturnType<typeof createStyles>;
   colors: ReturnType<typeof getThemeColors>;
 }) {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { account, isAuthenticated } = useAccount();
   const { suggestedUsers } = useSocial();
   const { blockUser } = useMessaging();

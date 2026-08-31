@@ -333,6 +333,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
         profileServerReadyUidRef.current = user.uid;
         const hydratedAccount = accountFromProfile(profile);
         logAuthStage("profile-normalization", "session", "success");
+        logAuthStage("profile-document-loaded", "session", "success", undefined, { fromCache: snapshot.metadata.fromCache });
         const incomplete = profileNeedsCompletion(profile);
         setProfileHydrated(true);
         setProfileHydrationError(false);
@@ -340,6 +341,7 @@ export function AccountProvider({ children }: PropsWithChildren) {
         // open onboarding. Metadata-only server acknowledgements must be observed.
         if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) {
           setNeedsProfileCompletion(incomplete);
+          logAuthStage("onboarding-resolved", "session", "success", undefined, { needsCompletion: incomplete });
         }
         setAccount((current) => current.uid === hydratedAccount.uid
           ? { ...hydratedAccount, completedWeeks: current.completedWeeks, totalScore: current.totalScore }
@@ -363,6 +365,11 @@ export function AccountProvider({ children }: PropsWithChildren) {
       unsubscribe();
     };
   }, [authenticatedUid, authRevision, refreshCounter]);
+
+  useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+    logAuthStage("auth-context-committed", "session", "success", undefined, { authenticated: isAuthenticated, profileHydrated });
+  }, [authLoading, isAuthenticated, profileHydrated]);
 
   useEffect(() => {
     const user = firebaseAuth.currentUser;

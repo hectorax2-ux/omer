@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { AppChrome } from "@/components/app-chrome";
 import { getThemeColors } from "@/constants/theme";
 import { copy, uiCopy } from "@/data/content";
@@ -17,7 +17,7 @@ export function AuthRequired({ title }: { title?: string }) {
   const { theme } = useAppTheme();
   const colors = getThemeColors(theme);
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { authLoading } = useAccount();
 
   return (

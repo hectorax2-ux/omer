@@ -55,7 +55,7 @@ import { museumCoverPath, profileAvatarPath, uploadImage } from "./storage-servi
 import { purgeUserAccountRemote } from "./account-deletion-service";
 import { APP_WEB_ORIGIN } from "@/constants/app-links";
 import { authErrorCode } from "@/utils/auth-lifecycle";
-import { traceAuthStep } from "@/utils/auth-diagnostics";
+import { logAuthStage, traceAuthStep } from "@/utils/auth-diagnostics";
 
 export const firebaseConfig: FirebaseOptions = {
   apiKey: "AIzaSyAJt-zyn1UORtiHLIYKdS32936JqZReQQo",
@@ -296,9 +296,13 @@ export async function loginWithGooglePopup(): Promise<UserCredential> {
 }
 
 export async function loginWithGoogleIdToken(idToken: string): Promise<UserCredential> {
+  if (!idToken.trim()) throw new FirebaseError("google/missing-id-token", "Google ID token is missing.");
   await traceAuthStep("session-storage", "google", requireDurableAuthPersistence);
-  const credential = GoogleAuthProvider.credential(idToken);
-  return traceAuthStep("firebase-auth", "google", () => signInWithCredential(firebaseAuth, credential));
+  const credential = GoogleAuthProvider.credential(idToken.trim());
+  logAuthStage("firebase-credential-created", "google", "success");
+  const result = await traceAuthStep("firebase-auth", "google", () => signInWithCredential(firebaseAuth, credential));
+  logAuthStage("firebase-current-user", "google", "success", undefined, { present: Boolean(firebaseAuth.currentUser) });
+  return result;
 }
 
 export async function logout(): Promise<void> {

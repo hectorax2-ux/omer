@@ -6,6 +6,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import { authErrorCode } from "@/utils/auth-lifecycle";
 import { logAuthStage } from "@/utils/auth-diagnostics";
+import { requestGoogleIdToken } from "@/utils/google-sign-in-flow";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -136,51 +137,16 @@ async function signInWithNativeGoogle(webClientId: string, iosClientId: string) 
     configureNativeGoogle(google.GoogleOneTapSignIn, webClientId, iosClientId);
     if (Platform.OS === "android") await google.GoogleOneTapSignIn.checkPlayServices(true);
 
-    console.info("[Google Sign In] Starting native create-or-sign-in flow.");
-    const savedCredentialResponse = await google.GoogleOneTapSignIn.signIn().catch((error: unknown) => {
-      if ((error as { code?: string }).code === google.statusCodes.SIGN_IN_REQUIRED) return null;
-      throw error;
-    });
-    const accountResponse = !savedCredentialResponse || google.isNoSavedCredentialFoundResponse(savedCredentialResponse)
-      ? await google.GoogleOneTapSignIn.createAccount()
-      : savedCredentialResponse;
-    const response = google.isNoSavedCredentialFoundResponse(accountResponse)
-      ? await google.GoogleOneTapSignIn.presentExplicitSignIn()
-      : accountResponse;
-    if (google.isCancelledResponse(response)) {
-      console.info("[Google Sign In] Native account picker cancelled.");
-      return { cancelled: true };
-    }
-
-    if (!google.isSuccessResponse(response)) {
-      console.error("[Google Sign In] Native provider returned an unsuccessful response.", response.type);
-      return { error: "Google kimliği alınamadı. Lütfen tekrar deneyin." };
-    }
-
-    const responseIdToken = response.data.idToken?.trim();
-    if (responseIdToken) {
-      console.info("[Google Sign In] Native Google ID token received.");
-      logAuthStage("native-provider", "google", "success");
-      return { idToken: responseIdToken };
-    }
-
-    console.warn("[Google Sign In] Sign-in succeeded without an ID token; refreshing the native token session.");
-    const refreshedTokens = await google.GoogleOneTapSignIn.getTokens();
-    const refreshedIdToken = refreshedTokens.idToken?.trim();
-    if (!refreshedIdToken) {
-      console.error("[Google Sign In] Native token refresh returned no ID token.");
-      return { error: "Google kimliği alınamadı. Lütfen tekrar deneyin." };
-    }
-
-    console.info("[Google Sign In] Refreshed Google ID token received.");
-    return { idToken: refreshedIdToken };
+    const result = await requestGoogleIdToken(google.GoogleOneTapSignIn, Platform.OS);
+    if (result.idToken) logAuthStage("native-provider", "google", "success");
+    return result;
   } catch (error) {
     console.error("[Google Sign In] Native sign-in failed.", authErrorCode(error));
     logAuthStage("native-provider", "google", "error", error);
     const googleError = error as { code?: string };
 
     if (googleError.code === "SIGN_IN_CANCELLED") {
-      return { cancelled: true };
+      return { cancelled: true, code: "google/sign-in-not-completed" };
     }
 
     if (googleError.code === "PLAY_SERVICES_NOT_AVAILABLE") {

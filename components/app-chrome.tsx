@@ -3,7 +3,8 @@ import { Animated, Easing, FlatList, Image, Keyboard, KeyboardAvoidingView, Link
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
+import { usePathname, useSegments } from "expo-router";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { UserRoleId } from "@/constants/profile-taxonomy";
 import { AppTheme, colors, getThemeColors, isBrightTheme } from "@/constants/theme";
 import { hairline, navigationLayout, v2Colors } from "@/constants/design";
@@ -36,8 +37,7 @@ import { t } from "@/utils/localized-text";
 import { getAppShortcutVisibility } from "@/utils/atlas-club-navigation";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useIsFocused } from "@react-navigation/native";
-import { beginNavigationPerformanceLock, beginScrollPerformanceLock, endScrollPerformanceLock } from "@/hooks/use-runtime-performance-mode";
-import { beginNavigationTransition, completeNavigationTransition, navigationLocationKey } from "@/utils/navigation-transition-store";
+import { beginScrollPerformanceLock, endScrollPerformanceLock } from "@/hooks/use-runtime-performance-mode";
 
 type ChromeChild = ReactNode | ((refreshVersion: number) => ReactNode);
 
@@ -94,10 +94,8 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const themeColors = getThemeColors(theme);
   const chromeAccent = v2Colors.primary;
   const themeStyles = useMemo(() => makeChromeThemeStyles(themeColors, theme), [themeColors, theme]);
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const pathname = usePathname();
-  const navigationParams = useGlobalSearchParams<Record<string, string | string[]>>();
-  const navigationLocation = navigationLocationKey(pathname, navigationParams);
   const segments = useSegments();
   const routeShortcutVisibility = getAppShortcutVisibility(pathname, { keyboardFocused: keyboardAvoiding || keyboardVisible });
   const shortcutVisibility = showFloatingShortcuts ? routeShortcutVisibility : { showAtlasClub: false, showPremium: false };
@@ -144,21 +142,11 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
   const veryCompactLanguageStyle = veryCompactHeader ? styles.languageButtonVeryCompact : undefined;
   const resolvedShowTopAd = showTopAd ?? isCategoryTopBannerRoute(pathname);
   const navigate = (action: () => void) => {
-    const commit = () => {
-      beginNavigationPerformanceLock();
-      const requestId = beginNavigationTransition(navigationLocation);
-      try {
-        action();
-      } catch (error) {
-        completeNavigationTransition(requestId);
-        throw error;
-      }
-    };
     if (onNavigationRequest) {
-      onNavigationRequest(commit);
+      onNavigationRequest(action);
       return;
     }
-    commit();
+    action();
   };
 
   function openAtlasClub() {
@@ -320,7 +308,7 @@ export function AppChrome({ children, title, eyebrow, scroll = true, showTopAd, 
               reducedMotion={reducedMotion}
               variant="news"
             >
-              <Ionicons name="newspaper-outline" size={13} color="#F5DDE4" />
+              <Ionicons name="newspaper-outline" size={14.5} color="#FFF3EA" />
             </FloatingShortcutButton>
           </View>
         ) : null}
@@ -420,7 +408,7 @@ function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, label, 
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={accessibilityHint}
-        hitSlop={4}
+        hitSlop={news ? 5 : 4}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         onPress={onPress}
@@ -435,7 +423,7 @@ function FloatingShortcutButton({ accessibilityLabel, accessibilityHint, label, 
       >
         <View pointerEvents="none" style={[styles.floatingPillHoverWash, violet ? styles.floatingPillHoverWashViolet : news ? styles.floatingPillHoverWashNews : styles.floatingPillHoverWashGold, hovered && styles.floatingPillHoverWashVisible]} />
         {children}
-        <Text numberOfLines={1} maxFontSizeMultiplier={1.15} style={styles.floatingPillLabel}>{label}</Text>
+        <Text numberOfLines={1} maxFontSizeMultiplier={1.15} style={[styles.floatingPillLabel, news && styles.floatingPillNewsLabel]}>{label}</Text>
       </Pressable>
     </Animated.View>
   );
@@ -482,7 +470,7 @@ function EmailVerificationBanner({ onResend }: { onResend: () => Promise<{ ok: b
 }
 
 function AppMenu({ visible, onClose, theme, onNavigate }: { visible: boolean; onClose: () => void; theme: AppTheme; onNavigate: (navigate: () => void) => void }) {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { language, setLanguage } = useLanguage();
   const { isAuthenticated, logout } = useAccount();
   const [themePickerOpen, setThemePickerOpen] = useState(false);
@@ -699,7 +687,7 @@ function MenuHubSection({ title, items, onOpen, colors: themeColors, emphasized 
 }
 
 function ProfileSearchModal({ visible, onClose, onNavigate }: { visible: boolean; onClose: () => void; onNavigate: (navigate: () => void) => void }) {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { language } = useLanguage();
   const { account, isAuthenticated } = useAccount();
   const { items } = useCommunityArt();
@@ -898,7 +886,7 @@ export function AdSlot({ label, compact = false, placement = "category_top" }: {
 }
 
 function BottomDock({ themeColors, pathname, onActiveTabPress, theme, onNavigate }: { themeColors: ReturnType<typeof getThemeColors>; pathname: string; onActiveTabPress: () => void; theme: AppTheme; onNavigate: (navigate: () => void) => void }) {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const insets = useSafeAreaInsets();
   const messageBadgeCount = useMessageBadgeCount();
   const { language } = useLanguage();
@@ -953,9 +941,12 @@ function BottomDock({ themeColors, pathname, onActiveTabPress, theme, onNavigate
             || (item.path === "/messages" && pathname.startsWith("/messages"));
           const active = optimisticPath ? optimisticPath === item.path : routeActive;
           return (
-            <Pressable accessibilityRole="tab" accessibilityLabel={dockLabel(item.path, language)} accessibilityState={{ selected: active }} key={item.path} onPressIn={() => {
-              if (!routeActive) showImmediateSelection(item.path);
-            }} onPress={() => routeActive ? onActiveTabPress() : onNavigate(() => router.push(item.path as never))} style={styles.bottomDockButton}>
+            <Pressable accessibilityRole="tab" accessibilityLabel={dockLabel(item.path, language)} accessibilityState={{ selected: active }} key={item.path}
+              android_ripple={{ color: "rgba(167,139,250,0.3)" }}
+              onPress={() => routeActive ? onActiveTabPress() : onNavigate(() => {
+                showImmediateSelection(item.path);
+                router.navigate(item.path as never);
+              })} style={({ pressed }) => [styles.bottomDockButton, pressed && { opacity: 0.7 }]}>
               {active ? Platform.OS === "android"
                 ? <View style={styles.bottomDockActivePill} />
                 : <LinearGradient colors={[v2Colors.primary, v2Colors.violet]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.bottomDockActivePill} />
@@ -1276,8 +1267,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#493A20"
   },
   floatingPillNews: {
-    borderColor: "rgba(235,176,195,0.28)",
-    backgroundColor: "#542238"
+    height: 41,
+    borderRadius: 21,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#AB6B68",
+    backgroundColor: "#64283C"
+  },
+  floatingPillNewsLabel: {
+    fontSize: 11,
+    lineHeight: 15
   },
   floatingPillLabel: {
     color: "#FFFDF8",
@@ -1324,11 +1323,9 @@ const styles = StyleSheet.create({
     elevation: 2
   },
   newsShortcut: {
-    shadowColor: "#3B1628",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2
+    minHeight: 48,
+    shadowOpacity: 0,
+    elevation: 0
   },
   createPostShortcut: {
     backgroundColor: "rgba(99,102,241,0.82)",

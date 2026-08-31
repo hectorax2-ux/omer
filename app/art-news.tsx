@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { Animated, FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View, ViewToken } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppChrome } from "@/components/app-chrome";
 import { NewsCard } from "@/components/news-card";
@@ -125,7 +126,7 @@ function LoadMoreFooter({ news, language, colors }: { news: ReturnType<typeof us
 }
 
 function NewsTicker({ item, label, colors }: { item: ArtNewsDocument; label: string; colors: ReturnType<typeof getThemeColors> }) {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { language } = useLanguage();
   const reducedMotion = useReducedMotion();
   const translateX = useRef(new Animated.Value(0)).current;
@@ -150,8 +151,8 @@ function NewsTicker({ item, label, colors }: { item: ArtNewsDocument; label: str
 
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={() => {
-      void saveResourceCache(`art-news:item:${item.id}`, item);
       router.push(`/news/${item.id}` as never);
+      void saveResourceCache(`art-news:item:${item.id}`, item);
     }} style={({ pressed }) => [styles.ticker, { backgroundColor: colors.panelSoft, borderColor: colors.line }, pressed && styles.pressed]}>
       <Text style={[styles.tickerLabel, { color: colors.gold }]} numberOfLines={1}>{label}</Text>
       <View style={[styles.tickerDot, { backgroundColor: colors.gold }]} />

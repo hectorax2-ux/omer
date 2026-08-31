@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from "react";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { getThemeColors } from "@/constants/theme";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useLanguage } from "@/hooks/use-language";
@@ -18,7 +18,7 @@ type Props = {
 };
 
 export const NewsCard = memo(function NewsCard({ item, variant = "feed" }: Props) {
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { language } = useLanguage();
   const { theme } = useAppTheme();
   const colors = getThemeColors(theme);
@@ -44,8 +44,10 @@ export const NewsCard = memo(function NewsCard({ item, variant = "feed" }: Props
       accessibilityRole="button"
       accessibilityLabel={title}
       onPress={() => {
-        void saveResourceCache(`art-news:item:${item.id}`, item);
         router.push(`/news/${item.id}` as never);
+        // The cache defers disk serialization itself; publish the small memory
+        // seed now so it cannot overwrite a later detail refresh from an idle task.
+        void saveResourceCache(`art-news:item:${item.id}`, item);
       }}
       style={({ pressed }) => [
         styles.card,

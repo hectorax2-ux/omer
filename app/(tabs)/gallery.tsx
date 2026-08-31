@@ -1,7 +1,7 @@
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouteFirstRouter } from "@/hooks/use-route-first-router";
 import { useIsFocused } from "@react-navigation/native";
 import { AppChrome } from "@/components/app-chrome";
 import { TabScreenMountGate } from "@/components/tab-screen-mount-gate";
@@ -78,7 +78,7 @@ function GalleryContent() {
   const colors = getThemeColors(theme);
   const styles = useMemo(() => createStyles(colors, theme), [colors, theme]);
   const { favoriteArtworkIds, readArtworkIds, artworkVotes, resetReadArtworks } = useEngagement();
-  const router = useRouter();
+  const router = useRouteFirstRouter();
   const { width } = useWindowDimensions();
   const performanceMode = useRuntimePerformanceMode();
   const [query, setQuery] = useState("");
