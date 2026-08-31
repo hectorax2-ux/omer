@@ -45,38 +45,25 @@ workflows:
 
       - name: Configure Android release signing
         script: |
-          node <<'NODE'
-          const fs = require("fs")
-          const path = `${process.env.CM_BUILD_DIR}/android/app/build.gradle`
-          const source = fs.readFileSync(path, "utf8")
-          const withReleaseSigning = source.replace(
-            /(signingConfigs\s*\{\s*debug\s*\{[\s\S]*?\n\s*\})(\s*\n\s*\})/,
-            `$1
-                  release {
-                      storeFile file(System.getenv("CM_KEYSTORE_PATH"))
-                      storePassword System.getenv("CM_KEYSTORE_PASSWORD")
-                      keyAlias System.getenv("CM_KEY_ALIAS")
-                      keyPassword System.getenv("CM_KEY_PASSWORD")
-                  }$2`
-          )
-          const signedRelease = withReleaseSigning.replace(
-            /(release\s*\{[\s\S]*?)signingConfig signingConfigs\.debug/,
-            "$1signingConfig signingConfigs.release"
-          )
-          if (source === withReleaseSigning || withReleaseSigning === signedRelease) {
-            throw new Error("Expo Android signing configuration could not be applied")
-          }
-          fs.writeFileSync(path, signedRelease)
-          NODE
+          set -euo pipefail
+          node script/configure-codemagic-android.cjs
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"
 
       - name: Build signed Android App Bundle
         script: |
+          set -euo pipefail
           cd "$CM_BUILD_DIR/android"
-          ./gradlew bundleRelease
+          ./gradlew :app:verifyCodemagicReleaseSigning :app:bundleRelease
+          bash "$CM_BUILD_DIR/script/verify-android-bundle.sh" \
+            "$CM_BUILD_DIR/android/app/build/outputs/bundle/release/app-release.aab"
+          APP_VERSION=$(node -p 'require("../app.json").expo.version')
+          VERSION_CODE=$(node -p 'require("../app.json").expo.android.versionCode')
+          mkdir -p "$CM_BUILD_DIR/build/verified-android"
+          cp app/build/outputs/bundle/release/app-release.aab \
+            "$CM_BUILD_DIR/build/verified-android/ArtAtlas-${APP_VERSION}-${VERSION_CODE}.aab"
 
     artifacts:
-      - android/app/build/outputs/**/*.aab
+      - build/verified-android/*.aab
       - android/app/build/outputs/**/mapping.txt
 
   ios-production:

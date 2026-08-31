@@ -36,7 +36,7 @@
     },
     "android": {
       "package": "com.artatlas.app",
-      "versionCode": 30,
+      "versionCode": 31,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
